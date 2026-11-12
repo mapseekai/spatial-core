@@ -1,0 +1,6 @@
+/target/
+/.local/
+/.cache/
+.DS_Store
+.env
+.env.*

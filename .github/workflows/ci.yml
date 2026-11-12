@@ -1,0 +1,64 @@
+name: Spatial core
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgis/postgis:16-3.5
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: spatial_core_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d spatial_core_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      SPATIAL_CORE_TEST_POSTGRES_DSN: host=127.0.0.1 port=5432 user=postgres dbname=spatial_core_test
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@0176485ebe2f605bde554dd99f804beeaf7db3e2
+        with:
+          toolchain: "1.98.1"
+          components: clippy, rustfmt
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libgdal-dev gdal-bin libclang-dev pkg-config postgresql-client
+      - name: Independent library checks
+        run: bash scripts/ci/check.sh
+      - name: Enable PostGIS extensions
+        run: |
+          psql "$SPATIAL_CORE_TEST_POSTGRES_DSN" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS postgis;' -c 'CREATE EXTENSION IF NOT EXISTS postgis_raster;'
+      - name: Database regressions
+        run: bash scripts/ci/test-postgis.sh
+
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@0176485ebe2f605bde554dd99f804beeaf7db3e2
+        with:
+          toolchain: "1.98.1"
+          components: clippy, rustfmt
+      - name: Install native dependencies
+        run: brew install gdal llvm pkg-config
+      - name: Independent library checks
+        run: LIBCLANG_PATH="$(brew --prefix llvm)/lib" bash scripts/ci/check.sh
