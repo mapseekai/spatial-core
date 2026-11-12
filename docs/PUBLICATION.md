@@ -22,8 +22,10 @@ GitHub CI 只以对应提交的实际 [Actions 结果](https://github.com/mapsee
 
 根 LICENSE 与来源项目保持相同的 All rights reserved 声明；公开可见不等于开源许可。未将本项目改为 MIT，未发布到 crates.io，`publish = false` 保留。已识别的 georust/gdal 片段保留其完整上游 MIT 许可与版权声明，适用范围见 [第三方说明](third-party-notices.md)。
 
-## 首轮 CI 的 runner 修正
+## 首轮 CI 的配置修正
 
-首次公开运行中，macOS job 在启动阶段报告 `macos-14-arm64-us-default` 不受支持，尚未执行项目代码。GitHub 官方 runner 公告确认 macOS 14 已于 2026-11-02 退役，因此仅将 runner 标签改为当前受支持的 `macos-15`（Arm64）。没有跳过检查、放宽断言、修改依赖或更改生产源码。
+首次公开运行中，macOS job 在启动阶段报告 `macos-14-arm64-us-default` 不受支持，尚未执行项目代码。GitHub 官方 runner 公告确认 macOS 14 已于 2026-11-02 退役，因此仅将 runner 标签改为当前受支持的 `macos-15`（Arm64）。没有跳过检查、放宽断言或更改 Rust 包依赖与生产源码。
 
 依据：[官方 runner 支持表](https://github.com/actions/runner-images#available-images)、[macOS 14 退役公告](https://github.com/actions/runner-images/issues/15226)。后续结果仍以对应提交的 Actions 运行状态为准。
+
+此外，原固定 Rust action 实际内置 1.90.0，会忽略 `toolchain` 输入；项目 `rust-toolchain.toml` 仍保证此前实际库检查使用 1.98.1。现改为经核对的官方 1.98.1 action 固定提交 `18f0487477426dce244608110aa2660c2893deb7`，去掉无效输入，避免安装两个版本和不必要的警告。

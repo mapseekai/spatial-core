@@ -31,9 +31,8 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@0176485ebe2f605bde554dd99f804beeaf7db3e2
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
         with:
-          toolchain: "1.98.1"
           components: clippy, rustfmt
       - name: Install native dependencies
         run: |
@@ -54,9 +53,8 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@0176485ebe2f605bde554dd99f804beeaf7db3e2
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
         with:
-          toolchain: "1.98.1"
           components: clippy, rustfmt
       - name: Install native dependencies
         run: brew install gdal llvm pkg-config
