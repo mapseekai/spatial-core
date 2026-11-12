@@ -6,7 +6,7 @@
 
 - 仓库：<https://github.com/mapseekai/spatial-core>。
 - 公开初始提交来自最终本地审查基线 `73730260930ea3b789d57cffb41e253e1ed1618e` 的跟踪文件树，而不是导入旧 Git 历史。
-- `src` 的 Git tree 为 `4660414ca58466c28384b3c4a0b5d6171b6a3d34`，与最终审查基线完全一致。Cargo.lock、测试 fixture、示例、脚本、工具链和 CI 也没有改变。
+- `src` 的 Git tree 为 `4660414ca58466c28384b3c4a0b5d6171b6a3d34`，与最终审查基线完全一致。Cargo.lock、测试 fixture、示例、脚本和工具链也没有改变。公开初始提交的 CI 保持基线定义；后续 runner 修正见下文。
 - 公开准备只新增仓库元数据和公开状态/来源文档。原来的 6 个本地提交及工作树保留为审查档案，没有改写或删除；MapSeek 工作树、依赖及远端均未修改。
 - 不携带原始导入历史，避免传播已被移除的旧测试环境配置。只发布跟踪的源码、合成数据和项目文档；不包含本地日志、用户配置、个人数据、数据库或构建产物。
 
@@ -21,3 +21,9 @@ GitHub CI 只以对应提交的实际 [Actions 结果](https://github.com/mapsee
 ## 许可与发布范围
 
 根 LICENSE 与来源项目保持相同的 All rights reserved 声明；公开可见不等于开源许可。未将本项目改为 MIT，未发布到 crates.io，`publish = false` 保留。已识别的 georust/gdal 片段保留其完整上游 MIT 许可与版权声明，适用范围见 [第三方说明](third-party-notices.md)。
+
+## 首轮 CI 的 runner 修正
+
+首次公开运行中，macOS job 在启动阶段报告 `macos-14-arm64-us-default` 不受支持，尚未执行项目代码。GitHub 官方 runner 公告确认 macOS 14 已于 2026-11-02 退役，因此仅将 runner 标签改为当前受支持的 `macos-15`（Arm64）。没有跳过检查、放宽断言、修改依赖或更改生产源码。
+
+依据：[官方 runner 支持表](https://github.com/actions/runner-images#available-images)、[macOS 14 退役公告](https://github.com/actions/runner-images/issues/15226)。后续结果仍以对应提交的 Actions 运行状态为准。
