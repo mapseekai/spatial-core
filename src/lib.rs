@@ -12,6 +12,8 @@
 
 pub mod config;
 pub mod control;
+pub mod dataset;
+pub mod operation;
 pub mod postgis;
 pub mod raster;
 pub mod vector;

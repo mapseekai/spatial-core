@@ -40,6 +40,22 @@ Conda 动态库使用 `@rpath`，因此除了 Rust 编译时的库搜索路径�
 
 GeoParquet 需要 GDAL Parquet driver。当前默认回归不会证明这个可选原生驱动可用，也不覆盖真实 S3、服务端算子/Temporal、Windows 或生产负载。本次独立 TLS 实测单列于验证记录，不是默认 CI 的一部分。
 
+## GDAL 矢量转换回归
+
+默认检查还运行 `vector_convert` 示例及矢量转换回归：GPKG、GeoJSON、FlatGeobuf、Shapefile 的真实写入和读回；四种写入模式；schema/CRS 追加预检；字段引用、SQL、过滤和驱动选项；多文件/路径别名保护；空表、NULL、整数、Z/M/ZM、混合几何、显式修复和跳过失败；取消/panic、诊断隔离、原生工作线程回调以及关闭错误组合。
+
+本 API 要求构建及运行 GDAL >= 3.7；复杂字段引用需 3.9+。可选 GeoParquet 测试单独执行，缺驱动必须失败，不能记为通过：
+
+```sh
+cargo test --locked --lib vector::translate::tests::optional_geoparquet_roundtrip -- --ignored
+```
+
+`test-postgis.sh` 只选择 `postgis::` 下的 ignored 数据库测试，不会误运行可选 Parquet 项。PGDUMP 默认回归仅检查生成 SQL，不执行 SQL。
+
+桌面或其他真实数据可用 `cargo run --locked --example vector_convert -- INPUT NEW_OUTPUT DRIVER [LAYER]` 转换并重新打开核对要素数。输出须使用新临时目录；大文件耗时、内存观察、字段/CRS 抽检另记，不把要素数相同等同于无损。GDAL 3.12.2 实测 FlatGeobuf 字符串 NULL 在读回时可能为空串，Shapefile 的字段名/类型也存在格式限制；这些限制由回归明确区分。
+
+关闭错误组合通过最小私有 `record_close` 故障接缝验证，不模拟整个 GDAL。它证明主错误及两个关闭错误不会互相覆盖；不等于对所有驱动或真实磁盘耗尽做了故障注入。
+
 ## 真实数据库回归
 
 只使用新建的、可丢弃的数据库。测试用户需创建 schema、表、索引与序列的权限；用数据库管理者提前创建 `postgis` 和 `postgis_raster` 扩展。测试会创建随机名称的对象，并主动测试替表、取消和失败回滚，不能指向业务库。
@@ -83,4 +99,4 @@ TLS 不作为所有测试的隐式要求。需要额外验证时，使用调用�
 
 macOS 的 Homebrew GDAL 和 PostGIS 必须链接相容的 native 库。若安装了多个 GDAL keg，不要为测试擅自重写全局 symlink；使用独立测试进程或容器的匹配环境。测试数据库和目标目录应独立，不复用用户生产数据库。
 
-重构后的实测详情见 [PostGIS 验证记录](POSTGIS_VALIDATION.md)。[提取基线验证记录](VALIDATION.md) 保留当时事实，不作为当前 API 的测试结果。
+重构后的实测详情见 [GDAL 验证记录](GDAL_VALIDATION.md) 和 [PostGIS 验证记录](POSTGIS_VALIDATION.md)。[提取基线验证记录](VALIDATION.md) 保留当时事实，不作为当前 API 的测试结果。

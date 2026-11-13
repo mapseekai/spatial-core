@@ -422,7 +422,7 @@ GDAL 配置显式传入输入描述符，或由应用启动时调用已有显式
 | `vector::compute_vector_metadata` | `postgis::vector::read_metadata`，实现在私有 `metadata.rs` | 返回精确 schema；支持自定义列名 |
 | `RasterCopyOptions` | `RasterWriteOptions`、`RasterStorage`、`TileLayout` | 通过类型避免无效组合 |
 | `RasterCopyBatchStats` | 内部传输计数 + `RasterWriteReport` | 不把 flush 当作 commit |
-| `to_geoparquet`、`zipshp2sql` | `vector::convert`；后者命名为 `to_pg_dump` | 保留既有格式导出默认值并重命名；不执行导出的 SQL |
+| `to_geoparquet`、`zipshp2sql` | `vector::Translate`，分别选择 `Parquet` / `PGDUMP` driver | 后续 GDAL 重构已移除格式专用入口；原有投影、维度和失败策略改为显式参数，不执行导出的 SQL；见 [GDAL 设计](GDAL_API_DESIGN.md) |
 | `vector_to_pg` | 统一 vector writer | 迁移后移除第二条数据库导入路线 |
 | `store_postgis` | 调用方直接使用已有 PostgreSQL client | 移除不提供额外语义的 raw SQL 包装 |
 | `get_file_name`、`add_prefix_from_ext` | 调用方路径或对象存储装配 | 不继续放在数据库导入模块 |

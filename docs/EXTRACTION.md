@@ -1,6 +1,6 @@
 # 提取来源、边界与接入
 
-> 本文记录最初提取时的 API 与兼容行为。当前 PostGIS 接口及有意改变的默认值见 [重构设计](POSTGIS_REFACTOR.md) 和 [README](../README.md)。
+> 本文记录最初提取时的 API 与兼容行为。当前 PostGIS/GDAL 接口及有意改变的默认值见 [GDAL 设计](GDAL_API_DESIGN.md)、 [重构设计](POSTGIS_REFACTOR.md) 和 [README](../README.md)。
 
 提取日期：2026-11-12。
 

@@ -1,7 +1,7 @@
 //! Synchronous GDAL DEM utility with the same cancellation-safe progress bridge
 //! as Warp/Translate. No shell command or external process is involved.
 use super::super::ffi::{last_null_pointer_err, path_to_c_string};
-use super::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
+use crate::gdal_ext::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
 use crate::raster::convert::GdalOperationProgress;
 use gdal::{Dataset, errors::Result};
 use std::{ffi::CString, path::Path, ptr::null_mut};
@@ -44,7 +44,7 @@ pub fn dem_to_path_with_progress<F>(
     mut progress: F,
 ) -> Result<Dataset>
 where
-    F: FnMut(GdalOperationProgress) -> bool,
+    F: FnMut(GdalOperationProgress) -> bool + Send,
 {
     let strings = args
         .iter()

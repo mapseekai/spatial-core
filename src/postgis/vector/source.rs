@@ -383,21 +383,15 @@ fn open_dataset(path: &Path, options: &[String]) -> anyhow::Result<Dataset> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        gdal_ext::vector::vector_translate::vector_translate, postgis::test_support::points,
-    };
+    use crate::{postgis::test_support::points, vector::NativeTranslate};
 
     #[test]
     fn zip_files_and_archive_roots_open_without_treating_members_as_directories()
     -> anyhow::Result<()> {
         let directory = tempfile::tempdir()?;
-        let source = Dataset::open(points())?;
         let zip = directory.path().join("points.shp.zip");
-        drop(vector_translate(
-            &source,
-            zip.as_path().try_into()?,
-            Some(vec!["-f", "ESRI Shapefile", "-nln", "points"].try_into()?),
-        )?);
+        let _ = NativeTranslate::new(points(), &zip, ["-f", "ESRI Shapefile", "-nln", "points"])
+            .run()?;
         let root = PathBuf::from(format!("/vsizip/{}", zip.display()));
         for path in [&root, &root.join("points.shp")] {
             assert_eq!(open_dataset(path, &[])?.layer(0)?.feature_count(), 3);
@@ -432,11 +426,7 @@ mod tests {
             "/vsizip/{}/nested/points.geojson",
             directory.path().join("points.zip").display()
         ));
-        drop(vector_translate(
-            &source,
-            member.as_path().try_into()?,
-            Some(vec!["-f", "GeoJSON"].try_into()?),
-        )?);
+        let _ = NativeTranslate::new(points(), &member, ["-f", "GeoJSON"]).run()?;
         assert_eq!(open_dataset(&member, &[])?.layer(0)?.feature_count(), 3);
         assert!(open_dataset(&member.with_file_name("absent.geojson"), &[]).is_err());
         Ok(())

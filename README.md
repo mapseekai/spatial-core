@@ -6,12 +6,15 @@
 
 - `raster::convert`：GDAL translate、warp、DEM、polygonize、rasterize、fill-nodata、sieve 和 contour，以及进度回调与取消。
 - `raster::tiling`：独立的惰性窗口计算，支持整幅、分块及 overlap。
-- `vector::convert`：GeoParquet、PGDump 文件转换。
+- `vector::Translate` / `NativeTranslate`：类型化或原生参数的矢量转换，支持显式创建、替层及追加。
+- `dataset::Source` / `operation`：输入描述、借用式进度控制、取消、诊断与类型化错误。
 - `postgis::vector`：精确字段 schema、GDAL 输入、事务导入及数据库元数据。
 - `postgis::raster`：InDB/OutDB、整幅/分块、重投影、栅格约束及数据库元数据。
 - `control`：协作式取消与输入错误分类。
 - `config::gdal`：显式 GDAL 选项及 worker 线程配置作用域。
 算子注册/执行协议留在未来 server；完整 DAG、调度和业务编排留在 gis-workflow。底层转换函数不是业务算子目录。本库不包含租户/项目授权、业务资源 ID、Temporal worker 或 HTTP 服务。
+
+[GDAL 能力封装设计](docs/GDAL_API_DESIGN.md) 说明矢量转换的 API、写入边界和后续 raster 接入方式。旧 `to_geoparquet` / `to_pg_dump` 已移除，其隐式重投影、降维、修复及跳过失败行为改为调用方显式选择。
 
 ## 本地使用
 
@@ -26,9 +29,38 @@ spatial-core = { path = "../spatial-core" }
 
 ```sh
 cargo run --locked --example raster_convert
+cargo run --locked --example vector_convert
 ```
 
 示例在临时目录生成微型 GeoTIFF，调用公开转换 API，核对输出像元和空间参考，并在结束时清理。同步 GDAL 处理应放在调用者的 blocking 线程；异步导入函数自行管理 blocking reader，但 PostgreSQL 连接池和运行时仍由调用方提供。
+
+## 矢量格式转换
+
+```rust
+use spatial_core::dataset::Source;
+use spatial_core::vector::{Dimensions, Translate};
+
+fn convert() -> spatial_core::operation::Result<()> {
+    let source = Source::new("roads.shp").open_option("ENCODING", "UTF-8");
+    let report = Translate::new(source, "roads.gpkg")
+        .driver("GPKG")
+        .where_clause("class = 'primary'")
+        .reproject_to("EPSG:3857")
+        .dimensions(Dimensions::Xy)
+        .layer_option("SPATIAL_INDEX", "YES")
+        .run()?;
+    println!("{} diagnostics", report.diagnostics().len());
+    Ok(())
+}
+```
+
+默认创建不存在的本地输出，不覆盖已有数据集或伴随文件；默认不修复、降维或跳过失败。已有数据集用 `CreateLayer` / `ReplaceLayer` / `AppendFeatures` 和显式 `layer_name`，追加会先检查 schema、几何与 CRS。`dataset_option`、`layer_option`、`output_open_option` 分别对应不同阶段；高级 GDAL 参数、VSI 输出用独立的 `NativeTranslate`，原生入口沿用 GDAL 的写入语义。
+
+`run_with(&mut Control)` 借用 `Cancellation` 和 `FnMut(&Progress) -> ControlFlow<()> + Send`，无需 `'static`。共享回调桥接串行调用闭包并捕获 panic；raster 现有回调也要求 `Send`。输入、输出在调用线程打开和关闭，异步应用自行使用 `spawn_blocking`。成功返回表示关闭已完成；取消/失败可能留下部分输出，不能据此假定回滚或直接重试追加。GDAL 没有回调的路径无法保证中途响应取消。Shapefile 的类型化 `CreateLayer` 要求目录目标；更新图层名限字母数字、`_`、`-`；多几何列追加要求同名同序。
+
+`Report` / `Error` 保留最多 64 条、每条 4 KiB 的原生诊断；错误另含阶段、输出状态和分别保留的关闭错误。驱动可能截短字段名、调整类型或将 NULL 字符串读为空串；成功不等于无损转换。可运行示例支持 `cargo run --example vector_convert -- INPUT OUTPUT DRIVER [LAYER]`，转换后读回核对要素数。
+
+源属性存在名为 `fid` 的列时，GPKG 的默认 FID 规则可能把它用作主键或因与内部 FID 不一致而拒绝；可显式 `.layer_option("FID", "row_id")` 保留该普通字段。Shapefile 中文字符串输出应按需要显式 `.layer_option("ENCODING", "UTF-8")`。实测数据与限制见 [GDAL 验证记录](docs/GDAL_VALIDATION.md)。
 
 ## PostGIS 导入
 
@@ -65,7 +97,7 @@ async fn example(pool: deadpool_postgres::Pool) -> anyhow::Result<()> {
 
 固定 Rust 1.98.1 / edition 2024，独立 Cargo.lock，依赖均为 crates.io 包，没有 MapSeek 内部 path/git 依赖。默认即包含 GDAL 和 PostGIS 适配，没有 feature 矩阵。
 
-原生依赖：GDAL 开发库及匹配的运行库、libclang（`gdal` 启用 bindgen）、C/C++ 编译工具及 pkg-config；GDAL 的 PROJ 数据必须与安装匹配。GDAL Rust 绑定 0.19 要求 GDAL 3.4+，但不能据此假定兼容后续所有版本；macOS CI 固定 GDAL 3.12.2，已知 3.13.3 的 C API 变动会导致编译失败。隔离环境配置和额外驱动要求见 [测试说明](docs/TESTING.md)。GeoParquet 导出另需 GDAL Parquet driver。
+原生依赖：GDAL 开发库及匹配的运行库、libclang（`gdal` 启用 bindgen）、C/C++ 编译工具及 pkg-config；GDAL 的 PROJ 数据必须与安装匹配。矢量转换要求构建与运行的 GDAL 都至少为 3.7，以检查显式关闭结果；带空格/逗号/引号的字段投影需 3.9+。不能据此假定兼容后续所有版本；macOS CI 固定 GDAL 3.12.2，已知 3.13.3 的 C API 变动会导致编译失败。隔离环境配置和额外驱动要求见 [测试说明](docs/TESTING.md)。GeoParquet 导出另需 GDAL Parquet driver。
 
 ```sh
 # macOS，先按 docs/TESTING.md 配置 GDAL 3.12.2 的隔离环境

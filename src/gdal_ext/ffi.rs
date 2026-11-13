@@ -57,7 +57,10 @@ pub(crate) fn path_to_c_string(path: &Path) -> gdal::errors::Result<CString> {
     }
     #[cfg(not(unix))]
     {
-        CString::new(path.to_string_lossy().as_bytes()).map_err(Into::into)
+        let path = path.to_str().ok_or_else(|| {
+            GdalError::BadArgument("dataset path cannot be represented as UTF-8".into())
+        })?;
+        CString::new(path.as_bytes()).map_err(Into::into)
     }
 }
 

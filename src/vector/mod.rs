@@ -1,3 +1,9 @@
 //! Vector file conversion. See `postgis::vector` for database operations.
-pub mod convert;
-pub use convert::{to_geoparquet, to_pg_dump};
+mod native;
+mod options;
+mod target;
+mod translate;
+
+pub use native::NativeTranslate;
+pub use options::{Dimensions, ErrorPolicy, SqlDialect, WriteMode};
+pub use translate::Translate;

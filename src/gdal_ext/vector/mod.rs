@@ -1,1 +1,1 @@
-pub mod vector_translate;
+pub(crate) mod translate;

@@ -14,11 +14,8 @@ use anyhow::Result;
 use gdal::Dataset;
 use std::path::Path;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct GdalOperationProgress {
-    pub fraction: f64,
-    pub message: String,
-}
+/// Shared GDAL progress payload. Callbacks may execute on native worker threads.
+pub use crate::operation::Progress as GdalOperationProgress;
 
 pub fn warp_to_path_with_progress<F>(
     source: &Dataset,
@@ -27,7 +24,7 @@ pub fn warp_to_path_with_progress<F>(
     progress: F,
 ) -> Result<Dataset>
 where
-    F: FnMut(GdalOperationProgress) -> bool,
+    F: FnMut(GdalOperationProgress) -> bool + Send,
 {
     let options = Some(WarpOptions::new(args)?);
     let dest = DatasetDestination::path(target)?;
@@ -41,7 +38,7 @@ pub fn translate_to_path_with_progress<F>(
     progress: F,
 ) -> Result<Dataset>
 where
-    F: FnMut(GdalOperationProgress) -> bool,
+    F: FnMut(GdalOperationProgress) -> bool + Send,
 {
     let options = Some(TranslateOptions::new(args)?);
     let dest = DatasetDestination::path(target)?;
@@ -127,6 +124,48 @@ mod tests {
 
         assert!(!calls.is_empty(), "translate progress should be invoked");
         assert!(calls.iter().any(|fraction| *fraction >= 0.99));
+    }
+
+    #[test]
+    fn multi_threaded_warp_serializes_callbacks_and_isolates_handled_errors() -> Result<()> {
+        let directory = TempDir::new()?;
+        let path = directory.path().join("source.tif");
+        create_epsg4326_source(&path);
+        let source = Dataset::open(&path)?;
+        let diagnostics = crate::gdal_ext::diagnostics::Diagnostics::enter();
+        let mut threads = std::collections::HashSet::new();
+        let output = warp_to_path_with_progress(
+            &source,
+            &directory.path().join("multi.tif"),
+            vec![
+                "-of",
+                "GTiff",
+                "-t_srs",
+                "EPSG:3857",
+                "-ts",
+                "1024",
+                "1024",
+                "-multi",
+                "-wm",
+                "0.1",
+            ],
+            |_| {
+                threads.insert(std::thread::current().id());
+                assert!(Dataset::open("/definitely/absent/spatial-core-warp-callback").is_err());
+                true
+            },
+        )?;
+        output.close()?;
+        assert!(
+            threads.len() > 1,
+            "this regression must exercise native worker callbacks"
+        );
+        assert_eq!(
+            diagnostics.failures(),
+            0,
+            "handled callback errors must not be replayed as warp failures"
+        );
+        Ok(())
     }
 
     #[test]
@@ -238,9 +277,9 @@ pub fn polygonize_to_path_with_progress<F>(
     mut progress: F,
 ) -> Result<Dataset>
 where
-    F: FnMut(GdalOperationProgress) -> bool,
+    F: FnMut(GdalOperationProgress) -> bool + Send,
 {
-    use crate::gdal_ext::raster::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
+    use crate::gdal_ext::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
     use gdal::{
         DriverManager,
         cpl::CslStringList,
@@ -291,9 +330,9 @@ pub fn rasterize_geometry_with_progress<F>(
     mut progress: F,
 ) -> Result<()>
 where
-    F: FnMut(GdalOperationProgress) -> bool,
+    F: FnMut(GdalOperationProgress) -> bool + Send,
 {
-    use crate::gdal_ext::raster::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
+    use crate::gdal_ext::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
     use gdal::cpl::CslStringList;
     if target.raster_count() != 1 || !value.is_finite() {
         anyhow::bail!("rasterize requires one target band and a finite value");
@@ -406,9 +445,9 @@ pub fn fill_nodata_with_progress<F>(
     mut progress: F,
 ) -> Result<()>
 where
-    F: FnMut(GdalOperationProgress) -> bool,
+    F: FnMut(GdalOperationProgress) -> bool + Send,
 {
-    use crate::gdal_ext::raster::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
+    use crate::gdal_ext::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
     if target.raster_count() != 1
         || !max_distance.is_finite()
         || max_distance <= 0.
@@ -451,9 +490,9 @@ pub fn sieve_with_progress<F>(
     mut progress: F,
 ) -> Result<()>
 where
-    F: FnMut(GdalOperationProgress) -> bool,
+    F: FnMut(GdalOperationProgress) -> bool + Send,
 {
-    use crate::gdal_ext::raster::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
+    use crate::gdal_ext::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
     if target.raster_count() != 1 || threshold < 1 {
         anyhow::bail!("sieve requires one band and a positive threshold");
     }
@@ -492,9 +531,9 @@ pub fn contour_to_path_with_progress<F>(
     mut progress: F,
 ) -> Result<Dataset>
 where
-    F: FnMut(GdalOperationProgress) -> bool,
+    F: FnMut(GdalOperationProgress) -> bool + Send,
 {
-    use crate::gdal_ext::raster::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
+    use crate::gdal_ext::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
     use gdal::{
         DriverManager,
         cpl::CslStringList,

@@ -1,6 +1,6 @@
 use super::super::destination::DatasetDestination;
 use super::super::ffi::last_null_pointer_err;
-use super::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
+use crate::gdal_ext::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
 use crate::raster::convert::GdalOperationProgress;
 use gdal::{
     Dataset,
@@ -102,7 +102,7 @@ pub(crate) fn translate_with_progress<F>(
     mut progress: F,
 ) -> Result<Dataset>
 where
-    F: FnMut(GdalOperationProgress) -> bool,
+    F: FnMut(GdalOperationProgress) -> bool + Send,
 {
     let mut fallback_options = TranslateOptions::new(std::iter::empty::<&str>())?;
     let options = options.as_mut().unwrap_or(&mut fallback_options);

@@ -22,7 +22,7 @@ MapSeek 原仓库的 MapLibre Native 声明属于其渲染服务；本次提取�
 本次可核对的范围：
 
 - `src/gdal_ext/destination.rs` 的枚举、转换、构造及所有权/drop 标志逻辑，对应上游 [`src/programs/raster/mdimtranslate.rs`](https://github.com/georust/gdal/blob/v0.19.0/src/programs/raster/mdimtranslate.rs) 的 `MultiDimTranslateDestination`；本地改名并增加安全说明。
-- `src/gdal_ext/vector/vector_translate.rs` 的 options 包装、argv 转换及目标/句柄转换结构，与该上游文件的 options 和 translate 包装有改编重叠；本地用于不同 GDAL API，且增加了边界检查和回归，不是整个上游文件的原样副本。
+- `src/gdal_ext/vector/translate.rs` 的 options 包装、argv 转换及目标/句柄转换结构，与该上游文件的 options 和 translate 包装有改编重叠；本地用于不同 GDAL API，且增加了边界检查和回归，不是整个上游文件的原样副本。
 - `src/gdal_ext/ffi.rs` 的既有路径/空指针错误辅助函数，对应上游 [`src/utils.rs`](https://github.com/georust/gdal/blob/v0.19.0/src/utils.rs) 的同类帮助函数；本地错误消息复制与重置顺序已修正。
 
 v0.19.0 是这次能够验证的比较快照，不据此断言最初引入版本。原 MapSeek 提交已含这些片段。此声明仅保留相关第三方片段的权利，不把整个 spatial-core 或本地新增代码改为 MIT，也不是其他未核实来源的完整审计。根 LICENSE 保持原样。

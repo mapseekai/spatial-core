@@ -58,15 +58,13 @@ pub(crate) fn points() -> PathBuf {
 }
 
 pub(crate) fn failing_vector(valid_rows: usize) -> anyhow::Result<(tempfile::TempDir, PathBuf)> {
-    use crate::gdal_ext::vector::vector_translate::vector_translate;
+    use crate::vector::Translate;
     let directory = tempfile::tempdir()?;
-    let source = gdal::Dataset::open(points())?;
     let geopackage = directory.path().join("points.gpkg");
-    drop(vector_translate(
-        &source,
-        geopackage.as_path().try_into()?,
-        Some(vec!["-f", "GPKG", "-nln", "points"].try_into()?),
-    )?);
+    let _ = Translate::new(points(), &geopackage)
+        .driver("GPKG")
+        .layer_name("points")
+        .run()?;
     let path = directory.path().join("broken.vrt");
     std::fs::write(
         &path,

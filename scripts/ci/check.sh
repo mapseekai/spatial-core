@@ -7,4 +7,5 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -D warnings" cargo doc --locked --no-deps
 cargo run --locked --example raster_convert
+cargo run --locked --example vector_convert
 git diff --check
