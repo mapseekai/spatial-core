@@ -65,11 +65,11 @@ async fn example(pool: deadpool_postgres::Pool) -> anyhow::Result<()> {
 
 固定 Rust 1.98.1 / edition 2024，独立 Cargo.lock，依赖均为 crates.io 包，没有 MapSeek 内部 path/git 依赖。默认即包含 GDAL 和 PostGIS 适配，没有 feature 矩阵。
 
-原生依赖：GDAL 开发库及匹配的运行库、libclang（`gdal` 启用 bindgen）、C/C++ 编译工具及 pkg-config；GDAL 的 PROJ 数据必须与安装匹配。GDAL Rust 绑定 0.19 支持 GDAL 3.4+；本地验证版本和额外驱动要求见 [测试说明](docs/TESTING.md)。GeoParquet 导出另需 GDAL Parquet driver。
+原生依赖：GDAL 开发库及匹配的运行库、libclang（`gdal` 启用 bindgen）、C/C++ 编译工具及 pkg-config；GDAL 的 PROJ 数据必须与安装匹配。GDAL Rust 绑定 0.19 要求 GDAL 3.4+，但不能据此假定兼容后续所有版本；macOS CI 固定 GDAL 3.12.2，已知 3.13.3 的 C API 变动会导致编译失败。隔离环境配置和额外驱动要求见 [测试说明](docs/TESTING.md)。GeoParquet 导出另需 GDAL Parquet driver。
 
 ```sh
-# macOS，在需要时安装开发依赖
-brew install gdal llvm pkg-config
+# macOS，先按 docs/TESTING.md 配置 GDAL 3.12.2 的隔离环境
+brew install llvm pkg-config
 # Ubuntu 24.04，在需要时安装开发依赖
 sudo apt-get install libgdal-dev gdal-bin libclang-dev pkg-config
 
