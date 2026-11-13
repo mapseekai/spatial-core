@@ -1,0 +1,2 @@
+deferred=false: successful report count=3, extent=None; actual rows=0, extent=None
+deferred=true: successful report count=3, extent=Some([-5.0, 0.0, 12.0, 55.0]); actual rows=0, extent=None

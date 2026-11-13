@@ -1,0 +1,10 @@
+[package]
+name="spatial-core-review-tx"
+version="0.0.0"
+edition="2024"
+[dependencies]
+spatial-core={path="../../../.."}
+anyhow="=1.0.104"
+tokio={version="=1.53.1",features=["rt-multi-thread","macros","time","net","io-util"]}
+tokio-postgres="=0.7.18"
+deadpool-postgres="=0.14.2"

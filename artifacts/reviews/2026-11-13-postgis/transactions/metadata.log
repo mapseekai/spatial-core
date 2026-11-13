@@ -1,0 +1,2 @@
+Metadata result across concurrent replacement: Ok(VectorMetadata { columns: [DatabaseColumn { name: "old_col", data_type: "integer", nullable: true, identity: "" }, DatabaseColumn { name: "geom", data_type: "geometry(Point,4326)", nullable: true, identity: "" }], geometry: ColumnName("geom"), geometry_type: Some("Point"), srid: Some(4326), coordinate_dimension: Some(2), feature_count: 0, extent: None })
+Actual replacement table: rows=1, srid=3857, attribute=new_col:text

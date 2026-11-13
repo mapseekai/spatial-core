@@ -1,0 +1,68 @@
+[
+  {
+    "id": "rgb16",
+    "source": "/Users/zhang/Desktop/测试数据/高景.tif",
+    "window": [
+      1000,
+      1000,
+      1025,
+      769
+    ],
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/rgb16.tif"
+  },
+  {
+    "id": "cog16",
+    "source": "/Users/zhang/Desktop/测试数据/GJ_COG_zip.tif",
+    "window": [
+      3000,
+      3000,
+      777,
+      513
+    ],
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/cog16.tif"
+  },
+  {
+    "id": "cloud",
+    "source": "/Users/zhang/Desktop/测试数据/SVN3-01_20250814_L2D0000203064_01_6112500050210001/SVN3-01_20250814_L2D0000203064_01_6112500050210001-Cloud.tiff",
+    "window": [
+      1000,
+      1000,
+      1025,
+      769
+    ],
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/cloud.tif"
+  },
+  {
+    "id": "city_rgb",
+    "source": "/Users/zhang/Desktop/测试数据/cdf20250916042716/J50D001006.tif",
+    "window": [
+      10000,
+      9000,
+      1025,
+      769
+    ],
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/city_rgb.tif"
+  },
+  {
+    "id": "jilin_rgb",
+    "source": "/Users/zhang/Desktop/测试数据/遥感影像样例/0.3+0.5样例/JL1GF04A_PMS_20230301124138_滇池会展中心.tif",
+    "window": [
+      5000,
+      5000,
+      513,
+      277
+    ],
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/jilin_rgb.tif"
+  },
+  {
+    "id": "landsat_crop",
+    "source": "/Users/zhang/Desktop/测试数据/LM41230331983186FFF03/LM41230331983186FFF03_B1.TIF",
+    "window": [
+      1000,
+      1000,
+      513,
+      277
+    ],
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/landsat_crop.tif"
+  }
+]

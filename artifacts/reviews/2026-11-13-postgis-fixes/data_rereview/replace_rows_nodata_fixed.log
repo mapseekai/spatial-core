@@ -1,0 +1,3 @@
+control reported_nodata=Some(0.1234567890123)
+replace_result=Err(SchemaMismatch("database finalization check failed"))
+actual_nodata=Some(0.1234567890123), catalog_nodata={0.123456789}

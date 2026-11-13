@@ -1,0 +1,279 @@
+[
+  {
+    "kind": "vector",
+    "id": "point",
+    "path": "/Users/zhang/Desktop/测试数据/point.geojson",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|point|rows=8|fields=0|geometry_samples=5|attribute_values=0|srid=4326|elapsed_ms=206\n",
+    "stderr": "",
+    "seconds": 0.709
+  },
+  {
+    "kind": "vector",
+    "id": "line",
+    "path": "/Users/zhang/Desktop/测试数据/line.geojson",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|line|rows=74|fields=2|geometry_samples=5|attribute_values=10|srid=4326|elapsed_ms=155\n",
+    "stderr": "Warning 1: Several features with id = 3 have been found. Altering it to be unique. This warning will not be emitted anymore for this layer\nWarning 1: Several features with id = 3 have been found. Altering it to be unique. This warning will not be emitted anymore for this layer\n",
+    "seconds": 0.246
+  },
+  {
+    "kind": "vector",
+    "id": "shp3857",
+    "path": "/Users/zhang/Desktop/测试数据/测试的shp数据3857.shp",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|shp3857|rows=385|fields=2|geometry_samples=5|attribute_values=10|srid=3857|elapsed_ms=189\n",
+    "stderr": "",
+    "seconds": 0.272
+  },
+  {
+    "kind": "vector",
+    "id": "parquet3857",
+    "path": "/Users/zhang/Desktop/测试数据/3857.parquet",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "WRITE_ERROR|parquet3857|InvalidInput(\"source has no usable CRS\")|target_exists=false|elapsed_ms=71\n",
+    "stderr": "",
+    "seconds": 0.15
+  },
+  {
+    "kind": "vector",
+    "id": "parquetworld",
+    "path": "/Users/zhang/Desktop/测试数据/全球国家边界21212.parquet",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|parquetworld|rows=177|fields=168|geometry_samples=5|attribute_values=840|srid=3857|elapsed_ms=175\n",
+    "stderr": "",
+    "seconds": 0.253
+  },
+  {
+    "kind": "vector",
+    "id": "testgpkg",
+    "path": "/Users/zhang/Desktop/测试数据/test.gpkg",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|testgpkg|rows=1|fields=0|geometry_samples=1|attribute_values=0|srid=4326|elapsed_ms=136\n",
+    "stderr": "",
+    "seconds": 0.222
+  },
+  {
+    "kind": "vector",
+    "id": "unknown_geojson",
+    "path": "/Users/zhang/Desktop/测试数据/市级行政边界简化.geojson",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "WRITE_ERROR|unknown_geojson|Unsupported(\"geometry family needs an explicit supported schema\")|target_exists=false|elapsed_ms=114\n",
+    "stderr": "Warning 1: Several features with id = 3 have been found. Altering it to be unique. This warning will not be emitted anymore for this layer\n",
+    "seconds": 0.2
+  },
+  {
+    "kind": "vector",
+    "id": "unknown_fgb",
+    "path": "/Users/zhang/Desktop/测试数据/全球国家边界.fgb",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "WRITE_ERROR|unknown_fgb|Unsupported(\"geometry family needs an explicit supported schema\")|target_exists=false|elapsed_ms=63\n",
+    "stderr": "",
+    "seconds": 0.145
+  },
+  {
+    "kind": "vector",
+    "id": "zip_city",
+    "path": "/vsizip//Users/zhang/Desktop/测试数据/City.zip",
+    "flags": [],
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "Error: GDAL method 'GDALOpenEx' returned a NULL pointer. Error msg: ''\n",
+    "seconds": 0.091
+  },
+  {
+    "kind": "vector",
+    "id": "zip_member",
+    "path": "/vsizip//Users/zhang/Desktop/测试数据/City.zip/City/CN_city.shp",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "WRITE_ERROR|zip_member|Source { record: 0, source: GDAL method 'VSIReadDirRecursive' returned a NULL pointer. Error msg: '' }|target_exists=false|elapsed_ms=98\n",
+    "stderr": "",
+    "seconds": 0.19
+  },
+  {
+    "kind": "vector",
+    "id": "shp_reproject",
+    "path": "/Users/zhang/Desktop/测试数据/测试的shp数据3857.shp",
+    "flags": [
+      "target=4326"
+    ],
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": "Error: sample geometry differs at 0\n",
+    "seconds": 0.316
+  },
+  {
+    "kind": "raster",
+    "id": "landsat4_full",
+    "path": "/Users/zhang/Desktop/测试数据/LM41230331983186FFF03/LM41230331983186FFF03_B1.TIF",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|landsat4_full|tiles=224|size=3944x3524|bands=1|pixel_samples=18|srid=32650|elapsed_ms=837\n",
+    "stderr": "",
+    "seconds": 0.925
+  },
+  {
+    "kind": "raster",
+    "id": "landsat5_full",
+    "path": "/Users/zhang/Desktop/测试数据/LM51220341984254FFF05/LM51220341984254FFF05_B3.TIF",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|landsat5_full|tiles=224|size=3911x3478|bands=1|pixel_samples=18|srid=32650|elapsed_ms=730\n",
+    "stderr": "",
+    "seconds": 0.821
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/rgb16.tif",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|rgb16|tiles=20|size=1025x769|bands=3|pixel_samples=54|srid=4326|elapsed_ms=578\n",
+    "stderr": "",
+    "seconds": 0.669
+  },
+  {
+    "kind": "raster",
+    "id": "cog16",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/cog16.tif",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|cog16|tiles=12|size=777x513|bands=3|pixel_samples=54|srid=4326|elapsed_ms=514\n",
+    "stderr": "",
+    "seconds": 0.624
+  },
+  {
+    "kind": "raster",
+    "id": "cloud",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/cloud.tif",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "WRITE_ERROR|cloud|SchemaMismatch(\"database finalization check failed\")|target_exists=false|size=1025x769|bands=1|elapsed_ms=345\n",
+    "stderr": "",
+    "seconds": 0.453
+  },
+  {
+    "kind": "raster",
+    "id": "city_rgb",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/city_rgb.tif",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "WRITE_ERROR|city_rgb|SchemaMismatch(\"database finalization check failed\")|target_exists=false|size=1025x769|bands=3|elapsed_ms=432\n",
+    "stderr": "",
+    "seconds": 0.541
+  },
+  {
+    "kind": "raster",
+    "id": "jilin_rgb",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/jilin_rgb.tif",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|jilin_rgb|tiles=6|size=513x277|bands=3|pixel_samples=54|srid=32648|elapsed_ms=451\n",
+    "stderr": "",
+    "seconds": 0.562
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16_overlap",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/rgb16.tif",
+    "flags": [
+      "width=300",
+      "height=200",
+      "overlap=17"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|rgb16_overlap|tiles=20|size=1025x769|bands=3|pixel_samples=54|srid=4326|elapsed_ms=731\n",
+    "stderr": "",
+    "seconds": 0.845
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16_whole",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/rgb16.tif",
+    "flags": [
+      "whole=true"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|rgb16_whole|tiles=1|size=1025x769|bands=3|pixel_samples=9|srid=4326|elapsed_ms=747\n",
+    "stderr": "",
+    "seconds": 0.844
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16_outdb",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/rgb16.tif",
+    "flags": [
+      "outdb=/private/tmp/sc_review_8hffshn0/fixtures/rgb16.tif"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|rgb16_outdb|tiles=20|size=1025x769|bands=3|pixel_samples=54|srid=4326|elapsed_ms=511\n",
+    "stderr": "",
+    "seconds": 0.611
+  },
+  {
+    "kind": "raster",
+    "id": "jilin_whole",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/jilin_rgb.tif",
+    "flags": [
+      "whole=true"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|jilin_whole|tiles=1|size=513x277|bands=3|pixel_samples=9|srid=32648|elapsed_ms=395\n",
+    "stderr": "",
+    "seconds": 0.502
+  },
+  {
+    "kind": "raster",
+    "id": "landsat_outdb_whole",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/landsat_crop.tif",
+    "flags": [
+      "whole=true",
+      "outdb=/private/tmp/sc_review_8hffshn0/fixtures/landsat_crop.tif"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|landsat_outdb_whole|tiles=1|size=513x277|bands=1|pixel_samples=3|srid=32650|elapsed_ms=402\n",
+    "stderr": "",
+    "seconds": 0.514
+  },
+  {
+    "kind": "raster",
+    "id": "landsat_reproject",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/landsat_crop.tif",
+    "flags": [
+      "target=3857"
+    ],
+    "exit_code": 0,
+    "stdout": "WRITE_ERROR|landsat_reproject|SchemaMismatch(\"database finalization check failed\")|target_exists=false|size=513x277|bands=1|elapsed_ms=642\n",
+    "stderr": "",
+    "seconds": 0.744
+  },
+  {
+    "kind": "vector",
+    "id": "buildings_gpkg",
+    "path": "/Users/zhang/Desktop/测试数据/building.gpkg",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|buildings_gpkg|rows=251014|fields=1|geometry_samples=5|attribute_values=5|srid=4326|elapsed_ms=4521\n",
+    "stderr": "",
+    "seconds": 4.631
+  },
+  {
+    "kind": "vector",
+    "id": "buildings_fgb",
+    "path": "/Users/zhang/Desktop/测试数据/big.fgb",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|buildings_fgb|rows=251014|fields=2|geometry_samples=5|attribute_values=10|srid=4326|elapsed_ms=4571\n",
+    "stderr": "",
+    "seconds": 4.684
+  }
+]

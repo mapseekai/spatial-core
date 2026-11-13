@@ -1,0 +1,2 @@
+100-feature import still pending after 3s: false
+Completed in 207 ms: Ok(Ok(VectorWriteReport { table: TableName { schema: "review_transactions", table: "starvation_target" }, schema: VectorSchema { columns: [ColumnSchema { name: ColumnName("value"), data_type: Integer, nullable: true }], identity: ColumnName("_id"), geometry: GeometryColumn { name: ColumnName("geom"), kind: Point, dimension: Xy, srid: 4326, nullable: false } }, feature_count: 100, extent: Some([12.0, 55.0, 12.0, 55.0]) }))

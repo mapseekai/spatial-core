@@ -1,0 +1,11 @@
+[package]
+name="spatial-core-data-rereview"
+version="0.0.0"
+edition="2024"
+[dependencies]
+spatial-core={path="../../../.."}
+gdal="=0.19.0"
+anyhow="=1.0.104"
+tokio={version="=1.53.1",features=["rt-multi-thread","macros","time"]}
+tokio-postgres="=0.7.18"
+deadpool-postgres="=0.14.2"

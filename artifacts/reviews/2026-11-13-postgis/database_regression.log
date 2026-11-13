@@ -1,0 +1,27 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s
+     Running unittests src/lib.rs (target/debug/deps/spatial_core-efc01ce40ef68276)
+
+running 15 tests
+test postgis::vector::writer::tests::empty_inputs_custom_crs_and_explicit_name_mapping ... ok
+test postgis::transaction::tests::lock_timeout_rolls_back_and_the_pool_remains_usable ... ok
+test postgis::vector::writer::tests::create_replace_rows_identity_metadata_and_reprojection ... ok
+test postgis::transaction::tests::cancellation_at_commit_does_not_override_a_confirmed_commit ... ok
+test postgis::transaction::tests::disconnect_during_commit_returns_unknown_and_discards_the_connection ... ok
+test postgis::vector::writer::tests::exact_types_arrays_escaping_and_conversion_rollback ... ok
+ERROR 1: In ExecuteSQL(): sqlite3_step(SELECT geom, json_extract(CASE WHEN fid > 0 THEN 'invalid-json' ELSE '{"a":1}' END, '$.a') AS value FROM points):
+  malformed JSON
+ERROR 1: SQL statement failed, or returned no layer result:
+SELECT geom, json_extract(CASE WHEN fid > 0 THEN 'invalid-json' ELSE '{"a":1}' END, '$.a') AS value FROM points
+ERROR 1: In GetNextRawFeature(): sqlite3_step() : malformed JSON
+test postgis::connection::tests::extension_resolution_is_transaction_local ... ok
+test postgis::transaction::tests::concurrent_writers_serialize_per_target_without_blocking_other_tables ... ok
+test postgis::vector::writer::tests::measured_geometry_and_empty_geometry_survive_the_database_roundtrip ... ok
+test postgis::vector::writer::tests::shapefile_multi_normalization_preserves_zm_and_accepts_other_epsg_targets ... ok
+test postgis::vector::writer::tests::inherited_partitioned_and_rls_targets_are_never_cleared ... ok
+test postgis::vector::writer::tests::native_read_failures_and_cancel_preserve_committed_target ... ok
+test postgis::raster::writer::tests::raster_cancel_budget_and_old_constraints_preserve_existing_rows ... ok
+test postgis::raster::writer::tests::indb_outdb_whole_and_tiles_read_back_real_pixels ... ok
+test postgis::raster::writer::tests::every_supported_pixel_type_and_nodata_roundtrip ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 32 filtered out; finished in 1.54s
+

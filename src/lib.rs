@@ -7,12 +7,12 @@
 //!
 //! GDAL datasets and synchronous conversion functions belong on a blocking
 //! thread. Async ingestion functions manage their own blocking readers and
-//! accept a [`control::Cancellation`] token. See the repository README for
-//! native dependencies and the retained configuration/ingestion contracts.
+//! accept a [`postgis::WriteControl`]. See the repository README for native
+//! dependencies, explicit configuration, and transaction contracts.
 
 pub mod config;
 pub mod control;
-pub mod pg;
+pub mod postgis;
 pub mod raster;
 pub mod vector;
 

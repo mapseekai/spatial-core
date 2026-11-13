@@ -1,0 +1,15 @@
+
+running 8 tests
+test postgis::transaction::tests::after_and_deferred_triggers_are_checked_before_reporting_success ... ok
+test postgis::transaction::tests::both_writers_finish_with_one_blocking_thread ... ok
+test postgis::transaction::tests::cancellation_at_commit_does_not_override_a_confirmed_commit ... ok
+test postgis::transaction::tests::concurrent_writers_serialize_per_target_without_blocking_other_tables ... ok
+test postgis::transaction::tests::ddl_trigger_row_changes_are_checked_after_finalization ... ok
+test postgis::transaction::tests::disconnect_during_commit_returns_unknown_and_discards_the_connection ... ok
+test postgis::transaction::tests::failed_cancel_connection_discards_without_waiting_for_running_sql ... ok
+test postgis::transaction::tests::lock_timeout_rolls_back_and_the_pool_remains_usable ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 53 filtered out; finished in 2.68s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running unittests src/lib.rs (/private/tmp/sc_postgis_fixes_oqoirlmm/target/debug/deps/spatial_core-efc01ce40ef68276)

@@ -1,0 +1,2 @@
+dropped cancel packet: elapsed_ms=5015, pool_size=0, result=Ok(Ok(Err(Cleanup { primary: Cancelled, cleanup: CleanupTimeout })))
+old row count after backend cleanup=3

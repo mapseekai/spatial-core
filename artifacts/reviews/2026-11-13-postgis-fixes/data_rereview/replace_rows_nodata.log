@@ -1,0 +1,3 @@
+control reported_nodata=Some(0.1234567890123)
+replace_result=Ok(RasterWriteReport { table: TableName { schema: "review_final_data", table: "nodata_trigger" }, schema: RasterSchema { identity: ColumnName("_id"), raster: ColumnName("rast"), srid: 4326, geo_transform: [0.0, 0.1, 0.0, 2.0, 0.0, -0.1], bands: [RasterBandSchema { pixel_type: Float64, nodata: Some(0.1234567890123) }] }, source_size: (2, 2), output_size: (2, 2), tile_count: 1, extent: Some([0.0, 1.8, 0.2, 2.0]) })
+actual_nodata=Some(0.1234567890124), catalog_nodata={0.123456789}

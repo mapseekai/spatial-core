@@ -1,0 +1,14 @@
+Standalone manifest, registry dependencies, Rust naming and test ownership: OK
+    Checking spatial-core v0.1.0 (/Users/zhang/code/spatial-core)
+error: unsafe block missing a safety comment
+   --> src/postgis/vector/source.rs:420:17
+    |
+420 |                 unsafe { gdal_sys::CPLCopyFile(to.as_ptr(), from.as_ptr()) },
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider adding a safety comment on the preceding line
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#undocumented_unsafe_blocks
+    = note: `-D clippy::undocumented-unsafe-blocks` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::undocumented_unsafe_blocks)]`
+
+error: could not compile `spatial-core` (lib test) due to 1 previous error

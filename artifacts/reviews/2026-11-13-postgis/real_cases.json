@@ -1,0 +1,175 @@
+[
+  {
+    "kind": "vector",
+    "id": "point",
+    "path": "/Users/zhang/Desktop/测试数据/point.geojson",
+    "flags": []
+  },
+  {
+    "kind": "vector",
+    "id": "line",
+    "path": "/Users/zhang/Desktop/测试数据/line.geojson",
+    "flags": []
+  },
+  {
+    "kind": "vector",
+    "id": "shp3857",
+    "path": "/Users/zhang/Desktop/测试数据/测试的shp数据3857.shp",
+    "flags": []
+  },
+  {
+    "kind": "vector",
+    "id": "parquet3857",
+    "path": "/Users/zhang/Desktop/测试数据/3857.parquet",
+    "flags": []
+  },
+  {
+    "kind": "vector",
+    "id": "parquetworld",
+    "path": "/Users/zhang/Desktop/测试数据/全球国家边界21212.parquet",
+    "flags": []
+  },
+  {
+    "kind": "vector",
+    "id": "testgpkg",
+    "path": "/Users/zhang/Desktop/测试数据/test.gpkg",
+    "flags": []
+  },
+  {
+    "kind": "vector",
+    "id": "unknown_geojson",
+    "path": "/Users/zhang/Desktop/测试数据/市级行政边界简化.geojson",
+    "flags": []
+  },
+  {
+    "kind": "vector",
+    "id": "unknown_fgb",
+    "path": "/Users/zhang/Desktop/测试数据/全球国家边界.fgb",
+    "flags": []
+  },
+  {
+    "kind": "vector",
+    "id": "zip_city",
+    "path": "/vsizip//Users/zhang/Desktop/测试数据/City.zip",
+    "flags": []
+  },
+  {
+    "kind": "vector",
+    "id": "zip_member",
+    "path": "/vsizip//Users/zhang/Desktop/测试数据/City.zip/City/CN_city.shp",
+    "flags": []
+  },
+  {
+    "kind": "vector",
+    "id": "shp_reproject",
+    "path": "/Users/zhang/Desktop/测试数据/测试的shp数据3857.shp",
+    "flags": [
+      "target=4326"
+    ]
+  },
+  {
+    "kind": "raster",
+    "id": "landsat4_full",
+    "path": "/Users/zhang/Desktop/测试数据/LM41230331983186FFF03/LM41230331983186FFF03_B1.TIF",
+    "flags": []
+  },
+  {
+    "kind": "raster",
+    "id": "landsat5_full",
+    "path": "/Users/zhang/Desktop/测试数据/LM51220341984254FFF05/LM51220341984254FFF05_B3.TIF",
+    "flags": []
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/rgb16.tif",
+    "flags": []
+  },
+  {
+    "kind": "raster",
+    "id": "cog16",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/cog16.tif",
+    "flags": []
+  },
+  {
+    "kind": "raster",
+    "id": "cloud",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/cloud.tif",
+    "flags": []
+  },
+  {
+    "kind": "raster",
+    "id": "city_rgb",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/city_rgb.tif",
+    "flags": []
+  },
+  {
+    "kind": "raster",
+    "id": "jilin_rgb",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/jilin_rgb.tif",
+    "flags": []
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16_overlap",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/rgb16.tif",
+    "flags": [
+      "width=300",
+      "height=200",
+      "overlap=17"
+    ]
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16_whole",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/rgb16.tif",
+    "flags": [
+      "whole=true"
+    ]
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16_outdb",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/rgb16.tif",
+    "flags": [
+      "outdb=/private/tmp/sc_review_8hffshn0/fixtures/rgb16.tif"
+    ]
+  },
+  {
+    "kind": "raster",
+    "id": "jilin_whole",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/jilin_rgb.tif",
+    "flags": [
+      "whole=true"
+    ]
+  },
+  {
+    "kind": "raster",
+    "id": "landsat_outdb_whole",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/landsat_crop.tif",
+    "flags": [
+      "whole=true",
+      "outdb=/private/tmp/sc_review_8hffshn0/fixtures/landsat_crop.tif"
+    ]
+  },
+  {
+    "kind": "raster",
+    "id": "landsat_reproject",
+    "path": "/private/tmp/sc_review_8hffshn0/fixtures/landsat_crop.tif",
+    "flags": [
+      "target=3857"
+    ]
+  },
+  {
+    "kind": "vector",
+    "id": "buildings_gpkg",
+    "path": "/Users/zhang/Desktop/测试数据/building.gpkg",
+    "flags": []
+  },
+  {
+    "kind": "vector",
+    "id": "buildings_fgb",
+    "path": "/Users/zhang/Desktop/测试数据/big.fgb",
+    "flags": []
+  }
+]

@@ -19,6 +19,8 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: spatial_core_test
         ports: ["5432:5432"]
+        volumes:
+          - /tmp/spatial-core-fixtures:/tmp/spatial-core-fixtures:ro
         options: >-
           --health-cmd "pg_isready -U postgres -d spatial_core_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
@@ -38,13 +40,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends libgdal-dev gdal-bin libclang-dev pkg-config postgresql-client
+          sudo install -d -m 1777 /tmp/spatial-core-fixtures
       - name: Independent library checks
         run: bash scripts/ci/check.sh
       - name: Enable PostGIS extensions
         run: |
           psql "$SPATIAL_CORE_TEST_POSTGRES_DSN" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS postgis;' -c 'CREATE EXTENSION IF NOT EXISTS postgis_raster;'
       - name: Database regressions
-        run: bash scripts/ci/test-postgis.sh
+        env:
+          TMPDIR: /tmp/spatial-core-fixtures
+        run: |
+          bash scripts/ci/test-postgis.sh
+          cargo run --locked --example postgis_vector
+          cargo run --locked --example postgis_raster
 
   macos:
     runs-on: macos-15

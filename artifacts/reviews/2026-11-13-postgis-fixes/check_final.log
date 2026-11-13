@@ -1,0 +1,96 @@
+Standalone manifest, registry dependencies, Rust naming and test ownership: OK
+    Checking spatial-core v0.1.0 (/Users/zhang/code/spatial-core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.28s
+   Compiling spatial-core v0.1.0 (/Users/zhang/code/spatial-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.98s
+     Running unittests src/lib.rs (target/debug/deps/spatial_core-efc01ce40ef68276)
+
+running 61 tests
+ERROR 1: test GDAL error
+ERROR 1: stale failure
+ERROR 23: read failure
+Warning 1: read warning
+test gdal_ext::raster::progress::tests::gdal_progress_trampoline_treats_null_message_as_empty ... ok
+test gdal_ext::ffi::tests::checked_calls_ignore_stale_errors_and_capture_new_failures ... ok
+test gdal_ext::ffi::tests::checked_calls_preserve_warning_only_results ... ok
+test gdal_ext::ffi::tests::copies_error_message_before_resetting_gdal_state ... ok
+test gdal_ext::raster::progress::tests::gdal_progress_trampoline_normalizes_non_finite_fraction ... ok
+test gdal_ext::raster::progress::tests::gdal_progress_trampoline_clamps_and_converts_message ... ok
+test control::tests::cancellation_is_shared_and_returns_a_typed_error ... ok
+test gdal_ext::raster::progress::tests::gdal_progress_trampoline_returns_zero_for_false_or_panic ... ok
+test postgis::connection::tests::extension_resolution_is_transaction_local ... ignored, requires dedicated PostGIS Raster database
+test config::gdal::tests::worker_options_restore_after_unwind_and_do_not_expose_values ... ok
+test postgis::raster::metadata::tests::mixed_srids_have_no_extent_but_edge_tiles_do ... ignored, requires dedicated PostGIS Raster database
+test postgis::raster::writer::tests::every_supported_pixel_type_and_nodata_roundtrip ... ignored, requires dedicated PostGIS Raster database
+test postgis::raster::writer::tests::indb_outdb_whole_and_tiles_read_back_real_pixels ... ignored, requires dedicated PostGIS Raster database with OutDB permission
+test postgis::raster::writer::tests::precise_scale_nodata_and_reprojection_survive_catalog_rounding ... ignored, requires dedicated PostGIS Raster database
+test postgis::raster::writer::tests::raster_cancel_budget_and_old_constraints_preserve_existing_rows ... ignored, requires dedicated PostGIS Raster test database
+test postgis::raster::writer::tests::replace_rows_checks_precise_headers_after_all_triggers ... ignored, requires dedicated PostGIS Raster database
+test postgis::raster::wkb::tests::absent_nodata_padding_does_not_shift_following_bands ... ok
+test control::tests::cancellation_wakes_waiters_and_is_sticky ... ok
+test postgis::sql::tests::identifiers_are_quoted_without_changing_their_identity ... ok
+test postgis::raster::wkb::tests::nodata_must_fit_the_exact_band_representation ... ok
+test postgis::stream::tests::dropping_a_stream_wakes_a_worker_waiting_on_bytes ... ok
+test postgis::stream::tests::record_count_limit_fails_the_entire_stream ... ok
+test postgis::stream::tests::queued_sources_cancel_without_waiting_for_unrelated_blocking_work ... ok
+test postgis::transaction::tests::after_and_deferred_triggers_are_checked_before_reporting_success ... ignored, requires dedicated PostGIS test database
+test postgis::stream::tests::stopping_a_source_releases_a_worker_waiting_for_srid_validation ... ok
+test postgis::transaction::tests::both_writers_finish_with_one_blocking_thread ... ignored, requires dedicated PostGIS Raster database
+test postgis::transaction::tests::cancellation_at_commit_does_not_override_a_confirmed_commit ... ignored, requires dedicated PostGIS test database
+test postgis::transaction::tests::concurrent_writers_serialize_per_target_without_blocking_other_tables ... ignored, requires dedicated PostGIS test database
+test postgis::transaction::tests::ddl_trigger_row_changes_are_checked_after_finalization ... ignored, requires dedicated PostGIS database with event trigger privilege
+test postgis::transaction::tests::disconnect_during_commit_returns_unknown_and_discards_the_connection ... ignored, requires dedicated PostGIS database with backend termination permission
+test postgis::transaction::tests::failed_cancel_connection_discards_without_waiting_for_running_sql ... ignored, requires dedicated PostGIS database with backend termination permission
+test postgis::transaction::tests::lock_timeout_rolls_back_and_the_pool_remains_usable ... ignored, requires dedicated PostGIS test database
+test postgis::vector::copy::tests::copy_text_preserves_null_marker_and_control_characters ... ok
+test postgis::vector::copy::tests::decimals_reject_rounding_without_fixed_precision_arithmetic ... ok
+test postgis::vector::copy::tests::values_cannot_be_silently_truncated_or_reinterpreted ... ok
+test postgis::vector::metadata::tests::metadata_blocks_replacement_until_its_snapshot_is_complete ... ignored, requires dedicated PostGIS test database
+test postgis::stream::tests::worker_error_and_panic_are_not_successful_eof ... ok
+test postgis::vector::writer::tests::create_replace_rows_identity_metadata_and_reprojection ... ignored, requires dedicated PostGIS test database
+test postgis::vector::writer::tests::empty_inputs_custom_crs_and_explicit_name_mapping ... ignored, requires dedicated PostGIS test database
+test postgis::vector::writer::tests::exact_types_arrays_escaping_and_conversion_rollback ... ignored, requires dedicated PostGIS test database
+test postgis::vector::writer::tests::inherited_partitioned_and_rls_targets_are_never_cleared ... ignored, requires dedicated PostGIS test database
+test postgis::vector::writer::tests::lossy_text_float_conversion_rolls_back_existing_rows ... ignored, requires dedicated PostGIS test database
+test postgis::vector::writer::tests::measured_geometry_and_empty_geometry_survive_the_database_roundtrip ... ignored, requires dedicated PostGIS test database
+test postgis::vector::writer::tests::native_read_failures_and_cancel_preserve_committed_target ... ignored, requires dedicated PostGIS test database
+test postgis::vector::writer::tests::shapefile_multi_normalization_preserves_zm_and_accepts_other_epsg_targets ... ignored, requires dedicated PostGIS test database
+test postgis::vector::ewkb::tests::iso_multipoint_dimensions_and_lengths_are_checked ... ok
+test postgis::vector::copy::tests::textual_floats_require_exact_binary_values ... ok
+test postgis::connection::tests::worker_srid_validation_preserves_definition_checks_and_errors ... ok
+ERROR 9: User terminated
+test raster::convert::analysis_tests::rasterize_burns_values_and_checks_cancellation ... ok
+test postgis::raster::source::tests::a_huge_raster_is_rejected_before_reading_or_materializing_windows ... ok
+ERROR 9: User terminated
+ERROR 9: User terminated
+test gdal_ext::raster::translate::tests::test_translate ... ok
+test raster::convert::tests::translate_to_path_reports_progress ... ok
+test gdal_ext::raster::translate::tests::test_translate_with_progress_reports_completion ... ok
+test raster::tiling::tests::rectangular_edges_overlap_and_large_lazy_layouts ... ok
+test postgis::vector::source::tests::zip_files_and_archive_roots_open_without_treating_members_as_directories ... ok
+test raster::convert::tests::warp_to_path_reports_progress ... ok
+test raster::convert::cleanup_tests::cleanup_native_callbacks_can_cancel ... ok
+test gdal_ext::vector::vector_translate::tests::translates_exactly_one_owned_source ... ok
+ERROR 9: User terminated
+test raster::convert::analysis_tests::polygonize_masks_nodata_and_respects_connectivity ... ok
+test raster::convert::cleanup_tests::contour_native_preserves_crs_locations_elevations_and_nan_holes ... ok
+test postgis::raster::source::tests::band_scale_and_independent_masks_are_explicitly_rejected ... ok
+
+test result: ok. 37 passed; 0 failed; 24 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+   Doc-tests spatial_core
+
+running 2 tests
+test src/postgis/mod.rs - postgis (line 7) - compile ... ok
+test src/postgis/raster/mod.rs - postgis::raster (line 3) - compile ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 0.58s; merged doctests compilation took 0.19s
+    Blocking waiting for file lock on build directory
+ Documenting spatial-core v0.1.0 (/Users/zhang/code/spatial-core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.84s
+   Generated /Users/zhang/code/spatial-core/target/doc/spatial_core/index.html
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running `target/debug/examples/raster_convert`
+Converted 2 x 2 GeoTIFF: EPSG:4326, pixels and progress verified

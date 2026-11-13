@@ -1,0 +1,2 @@
+event trigger result=Ok(VectorWriteReport { table: TableName { schema: "review_final_tx", table: "event_target" }, schema: VectorSchema { columns: [ColumnSchema { name: ColumnName("name"), data_type: Text, nullable: true }, ColumnSchema { name: ColumnName("value"), data_type: Integer, nullable: true }], identity: ColumnName("_id"), geometry: GeometryColumn { name: ColumnName("geom"), kind: Point, dimension: Xy, srid: 4326, nullable: false } }, feature_count: 3, extent: Some([-5.0, 0.0, 99.0, 55.0]) })
+actual=Ok((4, Some("BOX(-5 0,99 55)")))

@@ -1,0 +1,282 @@
+[
+  {
+    "kind": "vector",
+    "id": "point",
+    "path": "/Users/zhang/Desktop/测试数据/point.geojson",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|point|rows=8|fields=0|geometry_samples=5|attribute_values=0|max_reprojection_delta=0|srid=4326|elapsed_ms=191\n",
+    "stderr": "",
+    "seconds": 0.572
+  },
+  {
+    "kind": "vector",
+    "id": "line",
+    "path": "/Users/zhang/Desktop/测试数据/line.geojson",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|line|rows=74|fields=2|geometry_samples=5|attribute_values=10|max_reprojection_delta=0|srid=4326|elapsed_ms=178\n",
+    "stderr": "Warning 1: Several features with id = 3 have been found. Altering it to be unique. This warning will not be emitted anymore for this layer\nWarning 1: Several features with id = 3 have been found. Altering it to be unique. This warning will not be emitted anymore for this layer\n",
+    "seconds": 0.265
+  },
+  {
+    "kind": "vector",
+    "id": "shp3857",
+    "path": "/Users/zhang/Desktop/测试数据/测试的shp数据3857.shp",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|shp3857|rows=385|fields=2|geometry_samples=5|attribute_values=10|max_reprojection_delta=0|srid=3857|elapsed_ms=353\n",
+    "stderr": "",
+    "seconds": 0.445
+  },
+  {
+    "kind": "vector",
+    "id": "parquet3857",
+    "path": "/Users/zhang/Desktop/测试数据/3857.parquet",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "WRITE_ERROR|parquet3857|InvalidInput(\"source has no usable CRS\")|target_exists=false|elapsed_ms=245\n",
+    "stderr": "",
+    "seconds": 0.393
+  },
+  {
+    "kind": "vector",
+    "id": "parquetworld",
+    "path": "/Users/zhang/Desktop/测试数据/全球国家边界21212.parquet",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|parquetworld|rows=177|fields=168|geometry_samples=5|attribute_values=840|max_reprojection_delta=0|srid=3857|elapsed_ms=718\n",
+    "stderr": "",
+    "seconds": 0.861
+  },
+  {
+    "kind": "vector",
+    "id": "testgpkg",
+    "path": "/Users/zhang/Desktop/测试数据/test.gpkg",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|testgpkg|rows=1|fields=0|geometry_samples=1|attribute_values=0|max_reprojection_delta=0|srid=4326|elapsed_ms=330\n",
+    "stderr": "",
+    "seconds": 0.427
+  },
+  {
+    "kind": "vector",
+    "id": "unknown_geojson",
+    "path": "/Users/zhang/Desktop/测试数据/市级行政边界简化.geojson",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "WRITE_ERROR|unknown_geojson|Unsupported(\"geometry family needs an explicit supported schema\")|target_exists=false|elapsed_ms=134\n",
+    "stderr": "Warning 1: Several features with id = 3 have been found. Altering it to be unique. This warning will not be emitted anymore for this layer\n",
+    "seconds": 0.23
+  },
+  {
+    "kind": "vector",
+    "id": "unknown_fgb",
+    "path": "/Users/zhang/Desktop/测试数据/全球国家边界.fgb",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "WRITE_ERROR|unknown_fgb|Unsupported(\"geometry family needs an explicit supported schema\")|target_exists=false|elapsed_ms=62\n",
+    "stderr": "",
+    "seconds": 0.153
+  },
+  {
+    "kind": "vector",
+    "id": "zip_city",
+    "path": "/vsizip//Users/zhang/Desktop/测试数据/City.zip",
+    "flags": [
+      "oracle=/vsizip//Users/zhang/Desktop/测试数据/City.zip/City/CN_city.shp"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|zip_city|rows=385|fields=2|geometry_samples=5|attribute_values=10|max_reprojection_delta=0|srid=4326|elapsed_ms=197\n",
+    "stderr": "",
+    "seconds": 0.301
+  },
+  {
+    "kind": "vector",
+    "id": "zip_member",
+    "path": "/vsizip//Users/zhang/Desktop/测试数据/City.zip/City/CN_city.shp",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|zip_member|rows=385|fields=2|geometry_samples=5|attribute_values=10|max_reprojection_delta=0|srid=4326|elapsed_ms=195\n",
+    "stderr": "",
+    "seconds": 0.275
+  },
+  {
+    "kind": "vector",
+    "id": "shp_reproject",
+    "path": "/Users/zhang/Desktop/测试数据/测试的shp数据3857.shp",
+    "flags": [
+      "target=4326"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|shp_reproject|rows=385|fields=2|geometry_samples=5|attribute_values=10|max_reprojection_delta=0.000000000000014210854715202004|srid=4326|elapsed_ms=230\n",
+    "stderr": "",
+    "seconds": 0.313
+  },
+  {
+    "kind": "raster",
+    "id": "landsat4_full",
+    "path": "/Users/zhang/Desktop/测试数据/LM41230331983186FFF03/LM41230331983186FFF03_B1.TIF",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|landsat4_full|tiles=224|size=3944x3524|bands=1|pixel_samples=18|srid=32650|elapsed_ms=845\n",
+    "stderr": "",
+    "seconds": 0.931
+  },
+  {
+    "kind": "raster",
+    "id": "landsat5_full",
+    "path": "/Users/zhang/Desktop/测试数据/LM51220341984254FFF05/LM51220341984254FFF05_B3.TIF",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|landsat5_full|tiles=224|size=3911x3478|bands=1|pixel_samples=18|srid=32650|elapsed_ms=760\n",
+    "stderr": "",
+    "seconds": 0.858
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16",
+    "path": "/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/rgb16.tif",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|rgb16|tiles=20|size=1025x769|bands=3|pixel_samples=54|srid=4326|elapsed_ms=699\n",
+    "stderr": "",
+    "seconds": 0.796
+  },
+  {
+    "kind": "raster",
+    "id": "cog16",
+    "path": "/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/cog16.tif",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|cog16|tiles=12|size=777x513|bands=3|pixel_samples=54|srid=4326|elapsed_ms=610\n",
+    "stderr": "",
+    "seconds": 0.722
+  },
+  {
+    "kind": "raster",
+    "id": "cloud",
+    "path": "/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/cloud.tif",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|cloud|tiles=20|size=1025x769|bands=1|pixel_samples=18|srid=4326|elapsed_ms=399\n",
+    "stderr": "",
+    "seconds": 0.506
+  },
+  {
+    "kind": "raster",
+    "id": "city_rgb",
+    "path": "/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/city_rgb.tif",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|city_rgb|tiles=20|size=1025x769|bands=3|pixel_samples=54|srid=4326|elapsed_ms=513\n",
+    "stderr": "",
+    "seconds": 0.616
+  },
+  {
+    "kind": "raster",
+    "id": "jilin_rgb",
+    "path": "/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/jilin_rgb.tif",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|jilin_rgb|tiles=6|size=513x277|bands=3|pixel_samples=54|srid=32648|elapsed_ms=484\n",
+    "stderr": "",
+    "seconds": 0.591
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16_overlap",
+    "path": "/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/rgb16.tif",
+    "flags": [
+      "width=300",
+      "height=200",
+      "overlap=17"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|rgb16_overlap|tiles=20|size=1025x769|bands=3|pixel_samples=54|srid=4326|elapsed_ms=787\n",
+    "stderr": "",
+    "seconds": 0.889
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16_whole",
+    "path": "/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/rgb16.tif",
+    "flags": [
+      "whole=true"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|rgb16_whole|tiles=1|size=1025x769|bands=3|pixel_samples=9|srid=4326|elapsed_ms=783\n",
+    "stderr": "",
+    "seconds": 0.894
+  },
+  {
+    "kind": "raster",
+    "id": "rgb16_outdb",
+    "path": "/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/rgb16.tif",
+    "flags": [
+      "outdb=/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/rgb16.tif"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|rgb16_outdb|tiles=20|size=1025x769|bands=3|pixel_samples=54|srid=4326|elapsed_ms=534\n",
+    "stderr": "",
+    "seconds": 0.652
+  },
+  {
+    "kind": "raster",
+    "id": "jilin_whole",
+    "path": "/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/jilin_rgb.tif",
+    "flags": [
+      "whole=true"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|jilin_whole|tiles=1|size=513x277|bands=3|pixel_samples=9|srid=32648|elapsed_ms=428\n",
+    "stderr": "",
+    "seconds": 0.538
+  },
+  {
+    "kind": "raster",
+    "id": "landsat_outdb_whole",
+    "path": "/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/landsat_crop.tif",
+    "flags": [
+      "whole=true",
+      "outdb=/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/landsat_crop.tif"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|landsat_outdb_whole|tiles=1|size=513x277|bands=1|pixel_samples=3|srid=32650|elapsed_ms=445\n",
+    "stderr": "",
+    "seconds": 0.547
+  },
+  {
+    "kind": "raster",
+    "id": "landsat_reproject",
+    "path": "/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/landsat_crop.tif",
+    "flags": [
+      "target=3857",
+      "oracle=/private/tmp/sc_postgis_fixes_oqoirlmm/fixtures/landsat_3857.vrt"
+    ],
+    "exit_code": 0,
+    "stdout": "PASS|landsat_reproject|tiles=6|size=516x285|bands=1|pixel_samples=18|srid=3857|elapsed_ms=476\n",
+    "stderr": "",
+    "seconds": 0.6
+  },
+  {
+    "kind": "vector",
+    "id": "buildings_gpkg",
+    "path": "/Users/zhang/Desktop/测试数据/building.gpkg",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|buildings_gpkg|rows=251014|fields=1|geometry_samples=5|attribute_values=5|max_reprojection_delta=0|srid=4326|elapsed_ms=4593\n",
+    "stderr": "",
+    "seconds": 4.701
+  },
+  {
+    "kind": "vector",
+    "id": "buildings_fgb",
+    "path": "/Users/zhang/Desktop/测试数据/big.fgb",
+    "flags": [],
+    "exit_code": 0,
+    "stdout": "PASS|buildings_fgb|rows=251014|fields=2|geometry_samples=5|attribute_values=10|max_reprojection_delta=0|srid=4326|elapsed_ms=4664\n",
+    "stderr": "",
+    "seconds": 4.786
+  }
+]

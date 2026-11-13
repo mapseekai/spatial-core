@@ -1,0 +1,3 @@
+Cancellation is still waiting after 1 second despite cancel connection being refused: true
+Final cancellation elapsed=6037 ms, primary cancelled=true, full error=Cleanup { primary: Cancelled, cleanup: Database { stage: Preparing, source: Error { kind: Connect, cause: Some(Os { code: 61, kind: ConnectionRefused, message: "Connection refused" }) } } }
+Old rows after eventual rollback=3

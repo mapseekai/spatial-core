@@ -1,0 +1,18 @@
+dr_control: Ok(RasterWriteReport { table: TableName { schema: "review_data", table: "dr_control" }, schema: RasterSchema { identity: ColumnName("_id"), raster: ColumnName("rast"), srid: 4326, geo_transform: [0.0, 0.1, 0.0, 2.0, 0.0, -0.1], bands: [RasterBandSchema { pixel_type: Float64, nodata: None }] }, source_size: (2, 2), output_size: (2, 2), tile_count: 1, extent: Some([0.0, 1.8, 0.2, 2.0]) })
+dr_scale: Err(SchemaMismatch("database finalization check failed"))
+dr_nodata: Err(SchemaMismatch("database finalization check failed"))
+dr_cloud_real_64x64: Err(SchemaMismatch("database finalization check failed"))
+direct_gdal_zip_open: Ok(1)
+library_zip_open: Err(Source { record: 0, source: GDAL method 'VSIReadDirRecursive' returned a NULL pointer. Error msg: '' })
+direct_gdal_shp_zip_member: Ok(1)
+library_shp_zip_member: Err(Source { record: 0, source: GDAL method 'VSIReadDirRecursive' returned a NULL pointer. Error msg: '' })
+library_shp_zip_root_control: Ok(VectorWriteReport { table: TableName { schema: "review_data", table: "dr_shp_zip_root" }, schema: VectorSchema { columns: [ColumnSchema { name: ColumnName("name"), data_type: Text, nullable: true }, ColumnSchema { name: ColumnName("value"), data_type: Integer, nullable: true }], identity: ColumnName("_id"), geometry: GeometryColumn { name: ColumnName("geom"), kind: Point, dimension: Xy, srid: 4326, nullable: false } }, feature_count: 3, extent: Some([-5.0, 0.0, 12.0, 55.0]) })
+catalog_values: actual_scale=2.35176759123e-05, catalog_scale=2.35177e-05, actual_nodata=0.1234567890123, catalog_nodata={0.123456789}
+mixed_srid_metadata: Ok(RasterMetadata { tile_count: 2, srids: [3857, 4326], band_counts: [0], heterogeneous: true, extent: Some([100.0, 29.98, 11131969.0, 3503549.0]) })
+dr_outdb_good: Ok(RasterWriteReport { table: TableName { schema: "review_data", table: "dr_outdb_good" }, schema: RasterSchema { identity: ColumnName("_id"), raster: ColumnName("rast"), srid: 4326, geo_transform: [0.0, 0.1, 0.0, 2.0, 0.0, -0.1], bands: [RasterBandSchema { pixel_type: Float64, nodata: None }] }, source_size: (2, 2), output_size: (2, 2), tile_count: 1, extent: Some([0.0, 1.8, 0.2, 2.0]) })
+dr_outdb_good_read_pixel: Ok(Some(1.0))
+dr_outdb_missing: Ok(RasterWriteReport { table: TableName { schema: "review_data", table: "dr_outdb_missing" }, schema: RasterSchema { identity: ColumnName("_id"), raster: ColumnName("rast"), srid: 4326, geo_transform: [0.0, 0.1, 0.0, 2.0, 0.0, -0.1], bands: [RasterBandSchema { pixel_type: Float64, nodata: None }] }, source_size: (2, 2), output_size: (2, 2), tile_count: 1, extent: Some([0.0, 1.8, 0.2, 2.0]) })
+dr_outdb_missing_read_pixel: Err(Error { kind: Db, cause: Some(DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(EXX000), message: "rt_band_load_offline_data: Cannot open offline raster: /private/tmp/sc_review_8hffshn0/fixtures/does-not-exist.tif", detail: None, hint: None, position: None, where_: None, schema: None, table: None, column: None, datatype: None, constraint: None, file: Some("rtpostgis.c"), line: Some(220), routine: Some("rt_pg_error") }) })
+double_precision_text_input: Ok(VectorWriteReport { table: TableName { schema: "review_data", table: "dr_text_float" }, schema: VectorSchema { columns: [ColumnSchema { name: ColumnName("value"), data_type: DoublePrecision, nullable: true }], identity: ColumnName("_id"), geometry: GeometryColumn { name: ColumnName("geom"), kind: Point, dimension: Xy, srid: 4326, nullable: false } }, feature_count: 2, extent: Some([1.0, 2.0, 1.0, 2.0]) })
+double_precision_text_readback: ["9.007199254740992e+15", "1"]
+warp_3857: Err(SchemaMismatch("database finalization check failed"))

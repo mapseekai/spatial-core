@@ -1,0 +1,2 @@
+origin_result=Ok(RasterWriteReport { table: TableName { schema: "review_final_data", table: "origin_trigger" }, schema: RasterSchema { identity: ColumnName("_id"), raster: ColumnName("rast"), srid: 4326, geo_transform: [0.0, 0.1, 0.0, 2.0, 0.0, -0.1], bands: [RasterBandSchema { pixel_type: Float64, nodata: None }] }, source_size: (2, 2), output_size: (2, 2), tile_count: 1, extent: Some([0.1, 1.8, 0.30000000000000004, 2.0]) })
+actual_origin=0.1,2; dimensions=2,2

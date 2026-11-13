@@ -1,0 +1,1 @@
+commit ack discarded: result=Err(CommitOutcomeUnknown(Error { kind: Closed, cause: None })), actual=[1, 2, 3], pool_size=0

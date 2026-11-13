@@ -1,0 +1,2 @@
+event trigger result=Err(SchemaMismatch("final row count differs from the imported count after triggers"))
+actual=Err(Error { kind: Db, cause: Some(DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(E42P01), message: "relation \"review_final_tx.event_target\" does not exist", detail: None, hint: None, position: Some(Original(44)), where_: None, schema: None, table: None, column: None, datatype: None, constraint: None, file: Some("parse_relation.c"), line: Some(1428), routine: Some("parserOpenTable") }) })

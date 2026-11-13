@@ -1,0 +1,2 @@
+100-feature import with max_blocking_threads=1 still pending after 3s: true
+After explicit cancellation (3007 ms): Err(Cancelled)
