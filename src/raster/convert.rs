@@ -130,15 +130,22 @@ mod tests {
     }
 
     #[test]
-    fn vrt_progress_rejection_and_panic_return_errors() -> Result<()> {
+    fn native_progress_rejection_and_panic_return_errors() -> Result<()> {
         let dir = TempDir::new()?;
         let path = dir.path().join("source.tif");
         create_epsg4326_source(&path);
         let source = Dataset::open(&path)?;
-        for warp in [false, true] {
+        for (format, warp) in [
+            ("VRT", false),
+            ("VRT", true),
+            ("GTiff", false),
+            ("GTiff", true),
+        ] {
             for panics in [false, true] {
                 for threshold in [0.0, 1.0] {
-                    let target = dir.path().join(format!("{warp}-{panics}-{threshold}.vrt"));
+                    let target = dir
+                        .path()
+                        .join(format!("{format}-{warp}-{panics}-{threshold}"));
                     let mut rejected = false;
                     let callback = |progress: GdalOperationProgress| {
                         if progress.fraction < threshold {
@@ -152,21 +159,25 @@ mod tests {
                         warp_to_path_with_progress(
                             &source,
                             &target,
-                            vec!["-of", "VRT", "-t_srs", "EPSG:3857"],
+                            vec!["-of", format, "-t_srs", "EPSG:3857"],
                             callback,
                         )
                     } else {
                         translate_to_path_with_progress(
                             &source,
                             &target,
-                            vec!["-of", "VRT"],
+                            vec!["-of", format],
                             callback,
                         )
                     };
-                    assert!(rejected, "the native operation must invoke the callback");
-                    assert!(
+                    // GDAL 3.8 can create VRTs without progress; GTiff must exercise cancellation.
+                    if format == "GTiff" {
+                        assert!(rejected, "the native operation must invoke the callback");
+                    }
+                    assert_eq!(
                         result.is_err(),
-                        "warp={warp}, panics={panics}, at={threshold}"
+                        rejected,
+                        "format={format}, warp={warp}, panics={panics}, at={threshold}"
                     );
                 }
             }
