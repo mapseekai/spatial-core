@@ -64,7 +64,37 @@ jobs:
       - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
         with:
           components: clippy, rustfmt
-      - name: Install native dependencies
-        run: brew install gdal llvm pkg-config
-      - name: Independent library checks
-        run: LIBCLANG_PATH="$(brew --prefix llvm)/lib" bash scripts/ci/check.sh
+      - name: Install build tools
+        run: brew install llvm pkg-config
+      # Homebrew tracks newer GDAL APIs that gdal 0.19 cannot compile against.
+      # Keep GDAL, its headers, pkg-config metadata and PROJ data in one prefix.
+      - name: Install GDAL 3.12.2
+        uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3.2.1
+        with:
+          micromamba-version: 2.10.0-0
+          environment-name: gdal-ci
+          create-args: >-
+            --override-channels --channel conda-forge --strict-channel-priority
+            libgdal-core==3.12.2
+          init-shell: none
+          post-cleanup: all
+          micromamba-root-path: ${{ runner.temp }}/micromamba
+          micromamba-binary-path: ${{ runner.temp }}/micromamba-bin/micromamba
+      - name: Verify GDAL and run independent library checks
+        shell: micromamba-shell {0}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export GDAL_HOME="$CONDA_PREFIX"
+          export GDAL_INCLUDE_DIR="$GDAL_HOME/include"
+          export GDAL_LIB_DIR="$GDAL_HOME/lib"
+          export GDAL_DATA="$GDAL_HOME/share/gdal"
+          export PROJ_DATA="$GDAL_HOME/share/proj"
+          export PROJ_NETWORK=OFF
+          export PKG_CONFIG_PATH="$GDAL_HOME/lib/pkgconfig"
+          export LIBCLANG_PATH="$(brew --prefix llvm)/lib"
+          # Conda dylibs use @rpath; Cargo's -L alone does not set runtime lookup.
+          export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-rpath,$GDAL_LIB_DIR"
+          export RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -C link-arg=-Wl,-rpath,$GDAL_LIB_DIR"
+          bash scripts/ci/check-gdal.sh "$GDAL_HOME" 3.12.2
+          bash scripts/ci/check.sh

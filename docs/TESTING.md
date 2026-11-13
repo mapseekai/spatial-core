@@ -8,7 +8,35 @@ bash scripts/ci/check.sh
 
 要求 Rust 1.98.1（rustfmt、Clippy）、Python 3.11+、GDAL 与 libclang。默认测试使用内存或临时目录生成数据；`testdata/points.geojson` 是三个人工点，不含用户文件。示例临时文件会自动删除。
 
-`.github/workflows/ci.yml` 定义 Ubuntu 24.04 的 GDAL/PostGIS 全套检查和 macOS 默认检查。远端检查须以 [GitHub Actions](https://github.com/mapseekai/spatial-core/actions) 中对应提交的实际结果为准，不能仅凭工作流定义声称通过。GDAL 绑定 0.19 支持 3.4+，CI 的系统包决定实际版本，驱动列表和原生数据仍需匹配。
+`.github/workflows/ci.yml` 定义 Ubuntu 24.04 的 GDAL/PostGIS 全套检查和 macOS 默认检查。远端检查须以 [GitHub Actions](https://github.com/mapseekai/spatial-core/actions) 中对应提交的实际结果为准，不能仅凭工作流定义声称通过。Linux 使用系统 GDAL 包；macOS 通过固定版本的 micromamba 和固定提交的 setup-micromamba action，从 conda-forge 安装 `libgdal-core==3.12.2`，不使用 Homebrew 滚动更新的 GDAL。GDAL 绑定 0.19 要求 3.4+，但不保证兼容后续所有版本；3.13.3 已出现不兼容的 C API 变动。
+
+### macOS 原生依赖隔离
+
+GDAL 3.12.2 的 headers、动态库、`gdal-config` 和 pkg-config 元数据必须来自同一个安装 prefix，PROJ 数据也必须来自该环境。不能只设置 `GDAL_VERSION` 来伪装版本，或将旧 headers 与新库混用。CI 在编译前执行 `scripts/ci/check-gdal.sh`，检查版本和路径，并编译运行 C probe，核对 header、运行库版本及实际载入的动态库路径。
+
+本地可使用 [官方 micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html) 创建独立环境（以下命令在 Bash 中执行）：
+
+```sh
+brew install llvm pkg-config
+micromamba create --yes --name spatial-core-ci --override-channels --channel conda-forge \
+  --strict-channel-priority 'libgdal-core==3.12.2'
+eval "$(micromamba shell hook --shell bash)"
+micromamba activate spatial-core-ci
+export GDAL_HOME="$CONDA_PREFIX"
+export GDAL_INCLUDE_DIR="$GDAL_HOME/include"
+export GDAL_LIB_DIR="$GDAL_HOME/lib"
+export GDAL_DATA="$GDAL_HOME/share/gdal"
+export PROJ_DATA="$GDAL_HOME/share/proj"
+export PROJ_NETWORK=OFF
+export PKG_CONFIG_PATH="$GDAL_HOME/lib/pkgconfig"
+export LIBCLANG_PATH="$(brew --prefix llvm)/lib"
+export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-rpath,$GDAL_LIB_DIR"
+export RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -C link-arg=-Wl,-rpath,$GDAL_LIB_DIR"
+bash scripts/ci/check-gdal.sh "$GDAL_HOME" 3.12.2
+bash scripts/ci/check.sh
+```
+
+Conda 动态库使用 `@rpath`，因此除了 Rust 编译时的库搜索路径，还需上述运行时 rpath；`RUSTDOCFLAGS` 同样配置，避免 doctest 生成的独立程序找不到 GDAL。该配置只影响当前测试进程，不重写 Homebrew symlink 或生产软件。macOS 仍执行完整 `check.sh`；Linux 的默认检查、全部数据库回归和数据库示例保持不变。
 
 GeoParquet 需要 GDAL Parquet driver。当前默认回归不会证明这个可选原生驱动可用，也不覆盖真实 S3、服务端算子/Temporal、Windows 或生产负载。本次独立 TLS 实测单列于验证记录，不是默认 CI 的一部分。
 
