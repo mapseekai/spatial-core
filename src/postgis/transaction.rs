@@ -224,11 +224,13 @@ async fn validate_columns(client: &Object, oid: u32, expected: &[TableColumn]) -
             .await
             .map_err(preparing)?;
         let base: String = type_row.get(0);
-        let suffix = column
+        // Generated type names have no dots; the quoted extension schema may contain parentheses.
+        let type_name = column
             .sql_type
-            .find('(')
-            .map(|i| &column.sql_type[i..])
-            .unwrap_or("");
+            .rsplit('.')
+            .next()
+            .unwrap_or(&column.sql_type);
+        let suffix = type_name.find('(').map(|i| &type_name[i..]).unwrap_or("");
         let canonical = if suffix.is_empty() {
             base
         } else {
@@ -434,6 +436,35 @@ mod tests {
         vector::{PostGisVectorWriter, VectorSource, VectorWriteOptions},
     };
     use std::time::Duration;
+
+    #[tokio::test]
+    #[ignore = "requires dedicated PostGIS test database"]
+    async fn qualified_type_validation_ignores_parentheses_in_schema() -> anyhow::Result<()> {
+        let db = TestDb::new().await?;
+        let client = db.pool.get().await?;
+        client.batch_execute("BEGIN").await?;
+        let result = async {
+            let schema = quote(&format!("{}(gis.v3)\"", db.schema));
+            let sql_type = format!("{schema}.raster");
+            let table = db.table("qualified_type")?;
+            // A domain exercises qualified-type parsing without relocating shared extensions.
+            client.batch_execute(&format!(
+                "CREATE SCHEMA {schema}; CREATE DOMAIN {sql_type} AS integer; CREATE TABLE {} (rast {sql_type} NOT NULL)",
+                table.sql(),
+            )).await?;
+            let oid = target_oid(&client, &table).await?.expect("created table");
+            let columns = [TableColumn {
+                name: "rast".into(), sql_type, nullable: false, identity: false,
+            }];
+            validate_columns(&client, oid, &columns).await?;
+            Ok::<_, anyhow::Error>(())
+        }.await;
+        let rollback = client.batch_execute("ROLLBACK").await;
+        drop(client);
+        db.cleanup().await?;
+        rollback?;
+        result
+    }
 
     #[tokio::test]
     #[ignore = "requires dedicated PostGIS test database"]

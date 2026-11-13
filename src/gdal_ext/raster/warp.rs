@@ -88,7 +88,9 @@ where
         options.set_progress(GDAL_PROGRESS_TRAMPOLINE, progress_state.user_data());
     }
 
-    _warp(src, dest, Some(options))
+    let result = _warp(src, dest, Some(options));
+    progress_state.check()?;
+    result
 }
 
 fn _warp(

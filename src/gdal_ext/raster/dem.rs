@@ -1,10 +1,10 @@
 //! Synchronous GDAL DEM utility with the same cancellation-safe progress bridge
 //! as Warp/Translate. No shell command or external process is involved.
-use super::super::ffi::last_null_pointer_err;
+use super::super::ffi::{last_null_pointer_err, path_to_c_string};
 use super::progress::{GDAL_PROGRESS_TRAMPOLINE, ProgressCallbackState};
 use crate::raster::convert::GdalOperationProgress;
 use gdal::{Dataset, errors::Result};
-use std::{cell::Cell, ffi::CString, path::Path, ptr::null_mut};
+use std::{ffi::CString, path::Path, ptr::null_mut};
 
 struct Options(*mut gdal_sys::GDALDEMProcessingOptions);
 impl Drop for Options {
@@ -61,21 +61,9 @@ where
         return Err(last_null_pointer_err("GDALDEMProcessingOptionsNew"));
     }
     let options = Options(raw);
-    let path = CString::new(target.to_string_lossy().as_bytes())?;
+    let path = path_to_c_string(target)?;
     let mode = CString::new(mode.name())?;
-    // Some GDAL drivers return a partially created dataset after a progress abort.
-    // Track rejection independently of the returned pointer, including callback panics.
-    let aborted = Cell::new(false);
-    let mut forward = |value| {
-        if aborted.get() {
-            return false;
-        }
-        aborted.set(true);
-        let keep_going = progress(value);
-        aborted.set(!keep_going);
-        keep_going
-    };
-    let mut callback = ProgressCallbackState::new(&mut forward);
+    let mut callback = ProgressCallbackState::new(&mut progress);
     // SAFETY: callback, source, options and both C strings remain alive until the
     // synchronous call returns; the shared trampoline catches Rust panics.
     let output = unsafe {
@@ -93,20 +81,12 @@ where
             null_mut(),
         )
     };
-    if aborted.get() {
-        if !output.is_null() {
-            // SAFETY: a non-null utility result is an owned handle even on progress abort.
-            drop(unsafe { Dataset::from_c_dataset(output) });
-        }
-        return Err(gdal::errors::GdalError::CplError {
-            class: gdal_sys::CPLErr::CE_Failure,
-            number: 9, // CPLE_UserInterrupt
-            msg: "GDAL DEM processing cancelled by progress callback".into(),
-        });
-    }
-    if output.is_null() {
-        return Err(last_null_pointer_err("GDALDEMProcessing"));
-    }
-    // SAFETY: non-null successful GDAL result transfers one owned dataset handle.
-    Ok(unsafe { Dataset::from_c_dataset(output) })
+    let result = if output.is_null() {
+        Err(last_null_pointer_err("GDALDEMProcessing"))
+    } else {
+        // SAFETY: a non-null utility result is an owned handle, also closed if the callback aborted.
+        Ok(unsafe { Dataset::from_c_dataset(output) })
+    };
+    callback.check()?;
+    result
 }

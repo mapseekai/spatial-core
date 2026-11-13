@@ -1,3 +1,7 @@
+//! Progress callbacks returning false or panicking make the operation fail.
+//! Failed operations close owned datasets but may leave partial output files;
+//! in-place changes are not rolled back. Callers manage these outputs.
+
 pub use crate::gdal_ext::raster::dem::{DemMode, dem_to_path_with_progress};
 use crate::gdal_ext::{
     destination::DatasetDestination,
@@ -124,6 +128,103 @@ mod tests {
         assert!(!calls.is_empty(), "translate progress should be invoked");
         assert!(calls.iter().any(|fraction| *fraction >= 0.99));
     }
+
+    #[test]
+    fn vrt_progress_rejection_and_panic_return_errors() -> Result<()> {
+        let dir = TempDir::new()?;
+        let path = dir.path().join("source.tif");
+        create_epsg4326_source(&path);
+        let source = Dataset::open(&path)?;
+        for warp in [false, true] {
+            for panics in [false, true] {
+                for threshold in [0.0, 1.0] {
+                    let target = dir.path().join(format!("{warp}-{panics}-{threshold}.vrt"));
+                    let mut rejected = false;
+                    let callback = |progress: GdalOperationProgress| {
+                        if progress.fraction < threshold {
+                            return true;
+                        }
+                        rejected = true;
+                        assert!(!panics, "callback failed");
+                        false
+                    };
+                    let result = if warp {
+                        warp_to_path_with_progress(
+                            &source,
+                            &target,
+                            vec!["-of", "VRT", "-t_srs", "EPSG:3857"],
+                            callback,
+                        )
+                    } else {
+                        translate_to_path_with_progress(
+                            &source,
+                            &target,
+                            vec!["-of", "VRT"],
+                            callback,
+                        )
+                    };
+                    assert!(rejected, "the native operation must invoke the callback");
+                    assert!(
+                        result.is_err(),
+                        "warp={warp}, panics={panics}, at={threshold}"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_output_paths_preserve_bytes_without_overwriting_lossy_aliases() -> Result<()> {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+        let dir = TempDir::new()?;
+        let source_path = dir.path().join("source.tif");
+        create_epsg4326_source(&source_path);
+        let source = Dataset::open(&source_path)?;
+        for operation in ["translate", "warp", "dem"] {
+            let mut name = operation.as_bytes().to_vec();
+            name.extend_from_slice(b"_\xff.tif");
+            let target = dir.path().join(OsString::from_vec(name));
+            let lossy = std::path::PathBuf::from(target.to_string_lossy().as_ref());
+            std::fs::write(&lossy, b"existing file")?;
+            // Some Unix filesystems reject invalid UTF-8 instead of preserving raw bytes.
+            let supported = match std::fs::File::create(&target) {
+                Ok(file) => {
+                    drop(file);
+                    std::fs::remove_file(&target)?;
+                    true
+                }
+                Err(error) if matches!(error.raw_os_error(), Some(libc::EILSEQ | libc::EINVAL)) => {
+                    false
+                }
+                Err(error) => return Err(error.into()),
+            };
+            let result = match operation {
+                "translate" => {
+                    translate_to_path_with_progress(&source, &target, vec!["-of", "GTiff"], |_| {
+                        true
+                    })
+                }
+                "warp" => {
+                    warp_to_path_with_progress(&source, &target, vec!["-of", "GTiff"], |_| true)
+                }
+                _ => dem_to_path_with_progress(&source, &target, DemMode::Hillshade, &[], |_| true)
+                    .map_err(Into::into),
+            };
+            if supported {
+                let output = result?;
+                assert_eq!(output.raster_size(), source.raster_size());
+                drop(output);
+                assert!(target.is_file(), "{operation} changed the output path");
+            } else {
+                assert!(result.is_err(), "{operation} accepted an unsupported path");
+            }
+            assert_eq!(std::fs::read(&lossy)?, b"existing file");
+        }
+        Ok(())
+    }
 }
 
 /// Polygonize classified pixels using the validity mask and a cancellable native callback.
@@ -173,6 +274,7 @@ where
             callback.user_data(),
         )
     };
+    callback.check()?;
     if result != gdal_sys::CPLErr::CE_None {
         anyhow::bail!("GDAL polygonize failed or was cancelled");
     }
@@ -219,6 +321,7 @@ where
             callback.user_data(),
         )
     };
+    callback.check()?;
     if result != gdal_sys::CPLErr::CE_None {
         anyhow::bail!("GDAL rasterize failed or was cancelled");
     }
@@ -332,6 +435,7 @@ where
             callback.user_data(),
         )
     };
+    callback.check()?;
     if result != gdal_sys::CPLErr::CE_None {
         anyhow::bail!("GDAL fill nodata failed or was cancelled");
     }
@@ -370,6 +474,7 @@ where
             callback.user_data(),
         )
     };
+    callback.check()?;
     if result != gdal_sys::CPLErr::CE_None {
         anyhow::bail!("GDAL sieve failed or was cancelled");
     }
@@ -427,6 +532,7 @@ where
             callback.user_data(),
         )
     };
+    callback.check()?;
     if result != gdal_sys::CPLErr::CE_None {
         anyhow::bail!("GDAL contour failed or was cancelled");
     }
@@ -466,6 +572,56 @@ mod cleanup_tests {
             )
             .is_err()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn contour_rejects_cancellation_and_panic_at_completion() -> Result<()> {
+        let dir = tempfile::TempDir::new()?;
+        let ds = source(2, 2, vec![0., 20., 0., 20.])?;
+        for panics in [false, true] {
+            let mut rejected = false;
+            let result = contour_to_path_with_progress(
+                &ds,
+                &dir.path().join(format!("cancelled-{panics}.gpkg")),
+                10.,
+                5.,
+                "height",
+                |progress| {
+                    if progress.fraction < 1.0 {
+                        return true;
+                    }
+                    rejected = true;
+                    assert!(!panics, "callback failed");
+                    false
+                },
+            );
+            assert!(rejected);
+            assert!(result.is_err(), "panics={panics}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn dem_rejects_progress_cancellation_and_panic() -> Result<()> {
+        let dir = tempfile::TempDir::new()?;
+        let ds = source(3, 3, vec![1., 2., 3., 1., 2., 3., 1., 2., 3.])?;
+        for panics in [false, true] {
+            let mut called = false;
+            let result = dem_to_path_with_progress(
+                &ds,
+                &dir.path().join(format!("dem-{panics}.tif")),
+                DemMode::Hillshade,
+                &[],
+                |_| {
+                    called = true;
+                    assert!(!panics, "callback failed");
+                    false
+                },
+            );
+            assert!(called);
+            assert!(result.is_err());
+        }
         Ok(())
     }
     #[test]

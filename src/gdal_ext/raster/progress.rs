@@ -7,15 +7,30 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub(crate) struct ProgressCallbackState<'a> {
     callback: &'a mut dyn FnMut(GdalOperationProgress) -> bool,
+    aborted: bool,
 }
 
 impl<'a> ProgressCallbackState<'a> {
     pub(crate) fn new(callback: &'a mut dyn FnMut(GdalOperationProgress) -> bool) -> Self {
-        Self { callback }
+        Self {
+            callback,
+            aborted: false,
+        }
     }
 
     pub(crate) fn user_data(&mut self) -> *mut c_void {
         self as *mut Self as *mut c_void
+    }
+
+    pub(crate) fn check(&self) -> gdal::errors::Result<()> {
+        if self.aborted {
+            return Err(gdal::errors::GdalError::CplError {
+                class: gdal_sys::CPLErr::CE_Failure,
+                number: 9, // CPLE_UserInterrupt
+                msg: "GDAL operation cancelled by progress callback".into(),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -30,6 +45,12 @@ unsafe extern "C" fn gdal_progress_trampoline(
         return 1;
     }
 
+    // SAFETY: the synchronous GDAL caller exclusively borrows this live state until the operation returns.
+    let callback = unsafe { &mut *(user_data as *mut ProgressCallbackState<'_>) };
+    if callback.aborted {
+        return 0;
+    }
+
     let progress = GdalOperationProgress {
         fraction: normalize_progress_fraction(complete),
         message: if message.is_null() {
@@ -42,11 +63,13 @@ unsafe extern "C" fn gdal_progress_trampoline(
         },
     };
 
-    // SAFETY: the synchronous GDAL caller exclusively borrows this live state until the operation returns.
-    let callback = unsafe { &mut *(user_data as *mut ProgressCallbackState<'_>) };
-
+    // Some native operations ignore a callback rejection or call it again before returning.
+    callback.aborted = true;
     match catch_unwind(AssertUnwindSafe(|| (callback.callback)(progress))) {
-        Ok(true) => 1,
+        Ok(true) => {
+            callback.aborted = false;
+            1
+        }
         Ok(false) => 0,
         Err(payload) => {
             tracing::error!(
@@ -187,5 +210,32 @@ mod tests {
         assert_eq!(false_result, 0);
         assert_eq!(panic_result, 0);
         assert_eq!(null_user_data_result, 1);
+    }
+
+    #[test]
+    fn progress_rejection_is_sticky_even_if_gdal_calls_again() {
+        for panics in [false, true] {
+            let mut calls = 0;
+            let mut callback = |_progress: GdalOperationProgress| {
+                calls += 1;
+                if calls > 1 {
+                    return true;
+                }
+                assert!(!panics, "callback failed");
+                false
+            };
+            let mut state = ProgressCallbackState::new(&mut callback);
+            with_suppressed_panic_hook(|| {
+                for fraction in [0.25, 1.0] {
+                    // SAFETY: the callback state stays live through both synchronous calls.
+                    let result = unsafe {
+                        gdal_progress_trampoline(fraction, std::ptr::null(), state.user_data())
+                    };
+                    assert_eq!(result, 0);
+                }
+            });
+            assert!(state.check().is_err());
+            assert_eq!(calls, 1);
+        }
     }
 }

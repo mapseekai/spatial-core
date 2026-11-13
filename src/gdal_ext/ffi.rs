@@ -50,14 +50,33 @@ pub(crate) fn last_null_pointer_err(method_name: &'static str) -> GdalError {
 }
 
 pub(crate) fn path_to_c_string(path: &Path) -> gdal::errors::Result<CString> {
-    let path_str = path.to_string_lossy();
-    CString::new(path_str.as_ref()).map_err(Into::into)
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        CString::new(path.as_os_str().as_bytes()).map_err(Into::into)
+    }
+    #[cfg(not(unix))]
+    {
+        CString::new(path.to_string_lossy().as_bytes()).map_err(Into::into)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{checked_gdal_call, last_null_pointer_err};
     use gdal::errors::GdalError;
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_paths_preserve_raw_bytes_and_still_reject_nul() {
+        use std::{ffi::OsStr, os::unix::ffi::OsStrExt, path::Path};
+
+        let raw = b"/tmp/raster_\xff.tif";
+        let path = Path::new(OsStr::from_bytes(raw));
+        assert_eq!(super::path_to_c_string(path).unwrap().as_bytes(), raw);
+        let nul = Path::new(OsStr::from_bytes(b"/tmp/raster\0.tif"));
+        assert!(super::path_to_c_string(nul).is_err());
+    }
 
     #[test]
     fn copies_error_message_before_resetting_gdal_state() {

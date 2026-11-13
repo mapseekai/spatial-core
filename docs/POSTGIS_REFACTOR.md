@@ -288,7 +288,7 @@ COPY 返回行数须与成功发送的行数一致，延迟 trigger 完成后的
 
 `PostgresType` 初始覆盖现有两条路径实际需要的类型族：smallint/integer/bigint、real/double precision、numeric、text/varchar/char、boolean、date、两类 timestamp、json/jsonb 和 integer[]。长度、精度、scale、时间精度作为结构化参数保留。该集合描述最终 schema；原生 OGR 值能否直接编码与文本能否无损恢复分别校验，不能把“可以建该类型的列”当作“支持所有该类型输入”。
 
-原生 OGR DateTime 暂不直接接受：当前绑定读取可能丢弃小数秒，时区标记也不总是明确。对 GeoJSON，可通过 `VectorSource::open_option("DATE_AS_STRING=YES")` 保留字符串，再显式指定 `Timestamp` 或 `TimestampTz`；后者要求 RFC3339 offset，二者都拒绝超出目标小数秒精度的值。其他驱动须使用其支持的文本保真入口，不能把格式化后的 DateTime 当成原值。JSON 由 PostgreSQL 输入函数验证，不通过 f64 解析其数字。
+原生 OGR DateTime 暂不直接接受：当前绑定读取可能丢弃小数秒，时区标记也不总是明确。对 GeoJSON，可通过 `VectorSource::open_option("DATE_AS_STRING=YES")` 保留字符串，再显式指定 `Timestamp` 或 `TimestampTz`；后者要求 RFC3339 offset，二者都拒绝超出目标小数秒精度的值，也拒绝会被 PostgreSQL 归一化而无法保真的闰秒。其他驱动须使用其支持的文本保真入口，不能把格式化后的 DateTime 当成原值。JSON 由 PostgreSQL 输入函数验证，不通过 f64 解析其数字。
 
 SQL 标识符按数据库允许的字节长度校验，拒绝静默截断；动态数据使用绑定参数。自动生成的索引名要符合长度限制并避免碰撞。`TableName::new(schema, table)` 不拆解字符串中的点，消除表名与限定名称的歧义。这是对参考库 [标识符类型设计](https://github.com/cool-japan/oxigeo/blob/9e73da7a5ae6b2954adf3a6a2824349f8b0d1e79/crates/oxigeo-postgis/src/sql.rs#L24) 的适配。
 

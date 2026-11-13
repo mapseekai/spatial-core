@@ -113,7 +113,9 @@ where
         options.set_progress(GDAL_PROGRESS_TRAMPOLINE, progress_state.user_data());
     }
 
-    _translate(src, dest, Some(options))
+    let result = _translate(src, dest, Some(options));
+    progress_state.check()?;
+    result
 }
 
 fn _translate(

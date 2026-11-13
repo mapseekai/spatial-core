@@ -158,13 +158,17 @@ fn validate_text(text: &str, column: &ColumnSchema) -> Result<()> {
         PostgresType::Timestamp(precision) => {
             let value = chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
                 .map_err(|_| fail())?;
-            if value.nanosecond() % 10u32.pow(9 - u32::from(*precision)) != 0 {
+            if value.nanosecond() >= 1_000_000_000
+                || value.nanosecond() % 10u32.pow(9 - u32::from(*precision)) != 0
+            {
                 return Err(fail());
             }
         }
         PostgresType::TimestampTz(precision) => {
             let value = chrono::DateTime::parse_from_rfc3339(text).map_err(|_| fail())?;
-            if value.nanosecond() % 10u32.pow(9 - u32::from(*precision)) != 0 {
+            if value.nanosecond() >= 1_000_000_000
+                || value.nanosecond() % 10u32.pow(9 - u32::from(*precision)) != 0
+            {
                 return Err(fail());
             }
         }
@@ -293,6 +297,8 @@ mod tests {
                     "5e-1",
                     "1.2500",
                     "NaN",
+                    "+NaN",
+                    "-NaN",
                     "-Infinity",
                     "0.1000000000000000055511151231257827021181583404541015625",
                 ],
@@ -307,7 +313,7 @@ mod tests {
             ),
             (
                 PostgresType::Real,
-                vec!["16777216", "16777218", "0.5"],
+                vec!["16777216", "16777218", "0.5", "+NaN", "-NaN"],
                 vec!["16777217", "1.00000001", "0.1", "1e39", "1e-50"],
             ),
         ] {
@@ -421,6 +427,49 @@ mod tests {
             )
             .is_err()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn timestamps_reject_leap_seconds_before_encoding_copy() -> Result<()> {
+        for precision in 0..=6 {
+            for (kind, offset) in [
+                (PostgresType::Timestamp(precision), ""),
+                (PostgresType::TimestampTz(precision), "Z"),
+                (PostgresType::TimestampTz(precision), "+08:00"),
+            ] {
+                let column = ColumnSchema::new("time", kind)?;
+                for seconds in ["60", "60.5", "60.123456"] {
+                    let mut row = Vec::new();
+                    let text = format!("2016-12-31T23:59:{seconds}{offset}");
+                    assert!(
+                        push_field(
+                            &mut row,
+                            Some(FieldValue::StringValue(text.clone())),
+                            &column,
+                            1024,
+                        )
+                        .is_err(),
+                        "{text}, precision={precision}",
+                    );
+                    assert!(row.is_empty());
+                }
+                let fraction = if precision == 0 {
+                    String::new()
+                } else {
+                    format!(".{}", "1".repeat(usize::from(precision)))
+                };
+                let text = format!("2016-12-31T23:59:59{fraction}{offset}");
+                let mut row = Vec::new();
+                push_field(
+                    &mut row,
+                    Some(FieldValue::StringValue(text.clone())),
+                    &column,
+                    1024,
+                )?;
+                assert_eq!(row, text.as_bytes());
+            }
+        }
         Ok(())
     }
 }
