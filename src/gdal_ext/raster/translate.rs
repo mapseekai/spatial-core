@@ -6,67 +6,10 @@ use gdal::{
     Dataset,
     errors::{GdalError, Result},
 };
-use gdal_sys::{
-    GDALTranslate, GDALTranslateOptions, GDALTranslateOptionsFree, GDALTranslateOptionsSetProgress,
-};
-use libc::c_char;
-use std::ffi::CString;
-use std::ffi::c_void;
+use gdal_sys::{GDALTranslate, GDALTranslateOptions};
 use std::ptr::{null, null_mut};
 
-#[allow(dead_code)]
-pub struct TranslateOptions {
-    c_options: *mut GDALTranslateOptions,
-}
-
-#[allow(dead_code)]
-impl TranslateOptions {
-    /// See [GDALTranslateOptionsNew].
-    ///
-    /// [GDALTranslateOptionsNew]: https://gdal.org/api/gdal_utils.html#_CPPv429GDALTranslateOptionsNewPPcP35GDALTranslateOptionsForBinary
-    pub fn new<S: Into<Vec<u8>>, I: IntoIterator<Item = S>>(args: I) -> Result<Self> {
-        let cstr_args = args
-            .into_iter()
-            .map(CString::new)
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        let mut c_args = cstr_args
-            .iter()
-            .map(|x| x.as_ptr() as *mut c_char)
-            .chain(std::iter::once(null_mut()))
-            .collect::<Vec<_>>();
-
-        // SAFETY: the null-terminated argv and its CString buffers outlive synchronous option parsing.
-        let c_options =
-            unsafe { gdal_sys::GDALTranslateOptionsNew(c_args.as_mut_ptr(), null_mut()) };
-        if c_options.is_null() {
-            return Err(last_null_pointer_err("GDALTranslateOptionsNew"));
-        }
-
-        Ok(Self { c_options })
-    }
-
-    /// # Safety
-    /// The callback and user_data must remain valid until every GDAL call using these options returns.
-    pub(crate) unsafe fn set_progress(
-        &mut self,
-        callback: gdal_sys::GDALProgressFunc,
-        user_data: *mut c_void,
-    ) {
-        // SAFETY: options owns a valid handle; the caller guarantees the callback's state lifetime.
-        unsafe {
-            GDALTranslateOptionsSetProgress(self.c_options, callback, user_data);
-        }
-    }
-}
-
-impl Drop for TranslateOptions {
-    fn drop(&mut self) {
-        // SAFETY: new rejects null handles and this wrapper exclusively owns the options.
-        unsafe {
-            GDALTranslateOptionsFree(self.c_options);
-        }
-    }
-}
+pub(crate) use super::utility::TranslateOptions;
 
 impl TryFrom<Vec<&str>> for TranslateOptions {
     type Error = GdalError;
@@ -120,15 +63,10 @@ where
 
 fn _translate(
     datasets: &Dataset,
-    mut dest: DatasetDestination,
+    dest: DatasetDestination,
     options: Option<&TranslateOptions>,
 ) -> Result<Dataset> {
-    let (psz_dest_option, _h_dst_ds) = match &dest {
-        DatasetDestination::Path(c_path) => (Some(c_path), null_mut()),
-        DatasetDestination::Dataset { dataset, .. } => (None, dataset.c_dataset()),
-    };
-
-    let psz_dest = psz_dest_option.map(|x| x.as_ptr()).unwrap_or_else(null);
+    let DatasetDestination::Path(path) = dest;
 
     let c_options = options
         .map(|x| x.c_options as *const GDALTranslateOptions)
@@ -136,15 +74,10 @@ fn _translate(
 
     // SAFETY: source, path and options handles remain valid throughout this synchronous call.
     let dataset_out =
-        unsafe { GDALTranslate(psz_dest, datasets.c_dataset(), c_options, null_mut()) };
+        unsafe { GDALTranslate(path.as_ptr(), datasets.c_dataset(), c_options, null_mut()) };
 
     if dataset_out.is_null() {
         return Err(last_null_pointer_err("GDALTranslate"));
-    }
-
-    // SAFETY: a successful result transfers dataset ownership to the returned Dataset wrapper.
-    unsafe {
-        dest.relinquish_dataset_ownership();
     }
 
     // SAFETY: the result is non-null and no other Rust wrapper retains ownership.

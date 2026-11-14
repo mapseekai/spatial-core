@@ -77,6 +77,10 @@ impl Source {
         }
     }
 
+    pub(crate) fn has_open_options(&self) -> bool {
+        !self.options.is_empty()
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         self.options.validate()?;
         for name in &self.drivers {
@@ -110,7 +114,11 @@ impl Source {
     }
 
     pub(crate) fn open(&self) -> Result<Dataset> {
-        open(&self.name()?, &self.drivers, &self.options, false)
+        self.open_kind(Kind::Vector)
+    }
+
+    pub(crate) fn open_kind(&self, kind: Kind) -> Result<Dataset> {
+        open_kind(&self.name()?, &self.drivers, &self.options, false, kind)
             .map_err(|e| Error::native(Stage::OpenSource, e))
     }
 }
@@ -228,11 +236,27 @@ pub(crate) fn local_name(path: &Path) -> Result<CString> {
     path_to_c_string(path).map_err(|e| Error::invalid("dataset path contains NUL").with_source(e))
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum Kind {
+    Raster,
+    Vector,
+}
+
 pub(crate) fn open(
     name: &CString,
     drivers: &[String],
     options: &Options,
     update: bool,
+) -> gdal::errors::Result<Dataset> {
+    open_kind(name, drivers, options, update, Kind::Vector)
+}
+
+fn open_kind(
+    name: &CString,
+    drivers: &[String],
+    options: &Options,
+    update: bool,
+    kind: Kind,
 ) -> gdal::errors::Result<Dataset> {
     DriverManager::count(); // Uses gdal's once-only driver registration.
     let drivers = drivers
@@ -246,7 +270,10 @@ pub(crate) fn open(
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let driver_ptrs = pointers(&drivers);
     let option_ptrs = pointers(&options);
-    let flags = gdal::GdalOpenFlags::GDAL_OF_VECTOR | gdal::GdalOpenFlags::GDAL_OF_VERBOSE_ERROR;
+    let flags = match kind {
+        Kind::Raster => gdal::GdalOpenFlags::GDAL_OF_RASTER,
+        Kind::Vector => gdal::GdalOpenFlags::GDAL_OF_VECTOR,
+    } | gdal::GdalOpenFlags::GDAL_OF_VERBOSE_ERROR;
     // SAFETY: strings and null-terminated pointer lists live through this synchronous open.
     let dataset = unsafe {
         gdal_sys::GDALOpenEx(

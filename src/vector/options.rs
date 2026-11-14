@@ -53,6 +53,107 @@ pub enum SqlDialect {
     Sqlite,
 }
 
+/// Clip geometries in an explicitly selected source or destination CRS.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum Clip {
+    /// xmin, ymin, xmax, ymax with positive area.
+    Bounds([f64; 4]),
+    /// A POLYGON or MULTIPOLYGON WKT geometry, not a filename.
+    Wkt(String),
+}
+impl Clip {
+    fn validate(&self) -> Result<()> {
+        match self {
+            Self::Bounds([a, b, c, d])
+                if [a, b, c, d].iter().all(|v| v.is_finite()) && a < c && b < d =>
+            {
+                Ok(())
+            }
+            Self::Bounds(_) => Err(Error::invalid(
+                "clip bounds must be finite with positive area",
+            )),
+            Self::Wkt(wkt) => validate_text(wkt, "clip WKT"),
+        }
+    }
+    pub(super) fn validate_geometry(&self) -> Result<()> {
+        if let Self::Wkt(wkt) = self {
+            let geometry = gdal::vector::Geometry::from_wkt(wkt)
+                .map_err(|e| Error::invalid("invalid clipping WKT").with_source(e))?;
+            // SAFETY: OGR_GT_Flatten accepts any geometry type value.
+            let ty = unsafe { gdal_sys::OGR_GT_Flatten(geometry.geometry_type()) };
+            if ![
+                gdal_sys::OGRwkbGeometryType::wkbPolygon,
+                gdal_sys::OGRwkbGeometryType::wkbMultiPolygon,
+            ]
+            .contains(&ty)
+                || geometry.is_empty()
+            {
+                return Err(Error::invalid(
+                    "clipping WKT must be a nonempty polygon or multipolygon",
+                ));
+            }
+        }
+        Ok(())
+    }
+    fn append(&self, flag: &str, args: &mut Vec<String>) {
+        args.push(flag.into());
+        match self {
+            Self::Bounds(values) => args.extend(values.map(|v| v.to_string())),
+            Self::Wkt(wkt) => args.push(wkt.clone()),
+        }
+    }
+}
+
+/// Explicit output geometry conversion. Concrete types require explicit dimensions;
+/// semantic conversions preserve dimensions unless separately overridden.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum GeometryType {
+    /// Point.
+    Point,
+    /// Line string.
+    LineString,
+    /// Polygon.
+    Polygon,
+    /// Multiple points.
+    MultiPoint,
+    /// Multiple line strings.
+    MultiLineString,
+    /// Multiple polygons.
+    MultiPolygon,
+    /// General geometry collection.
+    GeometryCollection,
+    /// Promote single geometries into corresponding multi types.
+    PromoteToMulti,
+    /// Linearize curved geometries.
+    ConvertToLinear,
+    /// Promote linear geometries to compatible curve types.
+    ConvertToCurve,
+}
+impl GeometryType {
+    fn is_concrete(self) -> bool {
+        !matches!(
+            self,
+            Self::PromoteToMulti | Self::ConvertToLinear | Self::ConvertToCurve
+        )
+    }
+    fn name(self) -> &'static str {
+        match self {
+            Self::Point => "POINT",
+            Self::LineString => "LINESTRING",
+            Self::Polygon => "POLYGON",
+            Self::MultiPoint => "MULTIPOINT",
+            Self::MultiLineString => "MULTILINESTRING",
+            Self::MultiPolygon => "MULTIPOLYGON",
+            Self::GeometryCollection => "GEOMETRYCOLLECTION",
+            Self::PromoteToMulti => "PROMOTE_TO_MULTI",
+            Self::ConvertToLinear => "CONVERT_TO_LINEAR",
+            Self::ConvertToCurve => "CONVERT_TO_CURVE",
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub(crate) struct TranslateOptions {
     pub driver: Option<String>,
@@ -67,6 +168,12 @@ pub(crate) struct TranslateOptions {
     pub assign_srs: Option<String>,
     pub dimensions: Option<Dimensions>,
     pub make_valid: bool,
+    pub clip_source: Option<Clip>,
+    pub clip_destination: Option<Clip>,
+    pub simplify: Option<f64>,
+    pub segmentize: Option<f64>,
+    pub explode_collections: bool,
+    pub geometry_type: Option<GeometryType>,
     pub error_policy: ErrorPolicy,
     pub write_mode: WriteMode,
     pub dataset_options: Options,
@@ -76,6 +183,41 @@ pub(crate) struct TranslateOptions {
 
 impl TranslateOptions {
     pub fn validate(&self, version: u32) -> Result<()> {
+        if self.geometry_type.is_some_and(GeometryType::is_concrete) && self.dimensions.is_none() {
+            return Err(Error::invalid(
+                "a concrete geometry type requires explicit dimensions",
+            ));
+        }
+        for clip in [&self.clip_source, &self.clip_destination]
+            .into_iter()
+            .flatten()
+        {
+            clip.validate()?;
+        }
+        for value in [self.simplify, self.segmentize].into_iter().flatten() {
+            if !value.is_finite() || value <= 0. {
+                return Err(Error::invalid(
+                    "geometry tolerance must be positive and finite",
+                ));
+            }
+        }
+        if self.simplify.is_some() && self.segmentize.is_some() {
+            return Err(Error::invalid(
+                "simplify and segmentize require separate operations",
+            ));
+        }
+        if self.write_mode == WriteMode::AppendFeatures
+            && (self.clip_source.is_some()
+                || self.clip_destination.is_some()
+                || self.simplify.is_some()
+                || self.segmentize.is_some()
+                || self.explode_collections
+                || self.geometry_type.is_some())
+        {
+            return Err(Error::unsupported(
+                "geometry processing with append requires NativeTranslate or an intermediate dataset",
+            ));
+        }
         for options in [
             &self.dataset_options,
             &self.layer_options,
@@ -262,6 +404,38 @@ impl TranslateOptions {
                     Dimensions::Xyzm => "XYZM",
                 },
             );
+        }
+        for (flag, clip) in [
+            ("-clipsrc", &self.clip_source),
+            ("-clipdst", &self.clip_destination),
+        ] {
+            if let Some(clip) = clip {
+                clip.append(flag, &mut args);
+            }
+        }
+        for (flag, value) in [
+            ("-simplify", self.simplify),
+            ("-segmentize", self.segmentize),
+        ] {
+            if let Some(value) = value {
+                pair(&mut args, flag, &value.to_string());
+            }
+        }
+        if self.explode_collections {
+            args.push("-explodecollections".into());
+        }
+        if let Some(ty) = self.geometry_type {
+            let suffix = if ty.is_concrete() {
+                match self.dimensions.expect("validated dimensions") {
+                    Dimensions::Xy => "",
+                    Dimensions::Xyz => "Z",
+                    Dimensions::Xym => "M",
+                    Dimensions::Xyzm => "ZM",
+                }
+            } else {
+                ""
+            };
+            pair(&mut args, "-nlt", &format!("{}{suffix}", ty.name()));
         }
         if self.make_valid {
             args.push("-makevalid".into());

@@ -4,9 +4,10 @@
 
 ## 能力与边界
 
-- `raster::convert`：GDAL translate、warp、DEM、polygonize、rasterize、fill-nodata、sieve 和 contour，以及进度回调与取消。
+- `raster::{Translate, Warp, BuildVrt, Dem, Rasterize, Polygonize, Contour, FillNodata, Sieve}`：拥有输入描述的栅格转换与处理 Builder，统一进度、取消、诊断和显式关闭；utility 类操作另有 `Native*` 参数入口。
+- `raster::convert`：保留现有接受 GDAL 句柄的低层接口，供 PostGIS 等内部调用。
 - `raster::tiling`：独立的惰性窗口计算，支持整幅、分块及 overlap。
-- `vector::Translate` / `NativeTranslate`：类型化或原生参数的矢量转换，支持显式创建、替层及追加。
+- `vector::Translate` / `NativeTranslate`：类型化或原生参数的矢量转换，支持显式创建、替层及追加，以及裁剪、简化、顶点加密、集合拆分、类型转换、修复和 SQL 处理。
 - `dataset::Source` / `operation`：输入描述、借用式进度控制、取消、诊断与类型化错误。
 - `postgis::vector`：精确字段 schema、GDAL 输入、事务导入及数据库元数据。
 - `postgis::raster`：InDB/OutDB、整幅/分块、重投影、栅格约束及数据库元数据。
@@ -14,7 +15,7 @@
 - `config::gdal`：显式 GDAL 选项及 worker 线程配置作用域。
 算子注册/执行协议留在未来 server；完整 DAG、调度和业务编排留在 gis-workflow。底层转换函数不是业务算子目录。本库不包含租户/项目授权、业务资源 ID、Temporal worker 或 HTTP 服务。
 
-[GDAL 能力封装设计](docs/GDAL_API_DESIGN.md) 说明矢量转换的 API、写入边界和后续 raster 接入方式。旧 `to_geoparquet` / `to_pg_dump` 已移除，其隐式重投影、降维、修复及跳过失败行为改为调用方显式选择。
+[GDAL 能力封装设计](docs/GDAL_API_DESIGN.md) 说明矢量转换基线；[栅格与矢量处理设计](docs/GDAL_PROCESSING_DESIGN.md) 说明本轮扩展的 API、文件组织和算法边界。旧 `to_geoparquet` / `to_pg_dump` 已移除，其隐式重投影、降维、修复及跳过失败行为改为调用方显式选择。
 
 ## 本地使用
 
@@ -30,6 +31,8 @@ spatial-core = { path = "../spatial-core" }
 ```sh
 cargo run --locked --example raster_convert
 cargo run --locked --example vector_convert
+cargo run --locked --example raster_process
+cargo run --locked --example vector_process
 ```
 
 示例在临时目录生成微型 GeoTIFF，调用公开转换 API，核对输出像元和空间参考，并在结束时清理。同步 GDAL 处理应放在调用者的 blocking 线程；异步导入函数自行管理 blocking reader，但 PostgreSQL 连接池和运行时仍由调用方提供。
@@ -61,6 +64,49 @@ fn convert() -> spatial_core::operation::Result<()> {
 `Report` / `Error` 保留最多 64 条、每条 4 KiB 的原生诊断；错误另含阶段、输出状态和分别保留的关闭错误。驱动可能截短字段名、调整类型或将 NULL 字符串读为空串；成功不等于无损转换。可运行示例支持 `cargo run --example vector_convert -- INPUT OUTPUT DRIVER [LAYER]`，转换后读回核对要素数。
 
 源属性存在名为 `fid` 的列时，GPKG 的默认 FID 规则可能把它用作主键或因与内部 FID 不一致而拒绝；可显式 `.layer_option("FID", "row_id")` 保留该普通字段。Shapefile 中文字符串输出应按需要显式 `.layer_option("ENCODING", "UTF-8")`。实测数据与限制见 [GDAL 验证记录](docs/GDAL_VALIDATION.md)。
+
+## 栅格转换与处理
+
+```rust
+use spatial_core::raster::{Translate, Warp, FillNodata, Resampling};
+
+fn process() -> spatial_core::operation::Result<()> {
+    let _ = Translate::new("image.tif", "rgb.cog.tif")
+        .driver("COG").bands([1, 2, 3])
+        .creation_option("COMPRESS", "DEFLATE").run()?;
+    let _ = Warp::new(["west.tif", "east.tif"], "mosaic.tif")
+        .target_srs("EPSG:3857").resolution(10.0, 10.0)
+        .resampling(Resampling::Bilinear).run()?;
+    let _ = FillNodata::new("dem.tif", "filled.tif")
+        .max_distance(100.0).smoothing_iterations(1).run()?;
+    Ok(())
+}
+```
+
+所有新 Builder 接受同一个 `Source`，提供 `run` / `run_with`，返回已检查关闭结果的 `Report`。类型化输出必须是不存在的本地数据集；`NativeTranslate` / `NativeWarp` / `NativeDem` / `NativeRasterize` / `NativeBuildVrt` 接受 GDAL utility argv，并允许原生覆盖语义。算法失败可能留下部分输出，检查 `Error::output_state()`，不要据此假定回滚。目标目录需由调用方独占，预检不是跨进程原子锁。
+
+`FillNodata` / `Sieve` 先复制到新 GTiff，再处理选定波段；所有源波段须具有相同像元类型，其他波段和独立 mask 保留复制结果。Sieve 接受有符号/无符号 8/16/32 位整数。FillNodata 实际插值仅接受 Float32、8/16 位整数，避免原生缓冲静默降低高精度数据的精度；全有效输入直接复制。显式 `Mask::Band` 要求 UInt8。
+
+Polygonize 默认使用有效性 mask 和 Int64 分类通道，浮点分类须显式 `floating_values(true)`，受 GDAL Float32 精度约束。Contour 不支持独立/alpha 或多波段联合 NoData mask，需先归一化为单波段 NoData 或显式 `ignore_mask(true)`。Rasterize 的 `assign_srs` 只改标签，不重投影。COG 与 FillNodata 的中间文件写入独占临时目录，遵循调用者设置的 `CPL_TMPDIR` 所在磁盘。
+
+`BuildVrt` 创建虚拟数据集，不复制像元；关闭并不解除对源文件、驱动及访问配置的依赖。`BuildVrt` / `NativeBuildVrt` 会拒绝含 `Source::open_option` 的输入；需要这些选项时，先用 `Translate` 输出 VRT 代理，再将代理用于拼接。多输入 Warp/VRT 持有所有源句柄到输出关闭；GDAL 分块执行不代表所有算法都有固定内存上限，分类复杂度高的 polygonize/sieve 仍可能耗费大量内存。
+
+## 矢量处理
+
+```rust
+use spatial_core::vector::{Clip, Translate};
+
+fn process() -> spatial_core::operation::Result<()> {
+    let _ = Translate::new("roads.gpkg", "clipped.gpkg")
+        .clip_source(Clip::Bounds([100.0, 20.0, 120.0, 40.0]))
+        .simplify(0.001).reproject_to("EPSG:3857").run()?;
+    Ok(())
+}
+```
+
+源裁剪、简化及 `segmentize` 的距离使用源坐标单位；`clip_destination` 在重投影之后执行。Builder 方法顺序不改变 GDAL 的算法顺序；简化与顶点加密需要分开执行。`explode_collections` 可能增加要素数并重新分配 FID；几何处理与类型化追加不组合，先写中间结果或使用 Native。Buffer、dissolve、属性计算复用 `sql(query, SqlDialect::Sqlite)`，需要相应 GDAL SQLite/GEOS 能力。
+
+具体 `geometry_type`（如 `MultiPolygon`）必须同时指定 `dimensions`，避免 Z/M 被原生类型转换静默丢弃；三种语义转换 `PromoteToMulti` / `ConvertToLinear` / `ConvertToCurve` 默认保留维度。完整参数边界、文件组织与兼容性说明见 [处理设计](docs/GDAL_PROCESSING_DESIGN.md)，实测范围见 [处理验证记录](docs/GDAL_PROCESSING_VALIDATION.md)。
 
 ## PostGIS 导入
 
@@ -97,7 +143,7 @@ async fn example(pool: deadpool_postgres::Pool) -> anyhow::Result<()> {
 
 固定 Rust 1.98.1 / edition 2024，独立 Cargo.lock，依赖均为 crates.io 包，没有 MapSeek 内部 path/git 依赖。默认即包含 GDAL 和 PostGIS 适配，没有 feature 矩阵。
 
-原生依赖：GDAL 开发库及匹配的运行库、libclang（`gdal` 启用 bindgen）、C/C++ 编译工具及 pkg-config；GDAL 的 PROJ 数据必须与安装匹配。矢量转换要求构建与运行的 GDAL 都至少为 3.7，以检查显式关闭结果；带空格/逗号/引号的字段投影需 3.9+。不能据此假定兼容后续所有版本；macOS CI 固定 GDAL 3.12.2，已知 3.13.3 的 C API 变动会导致编译失败。隔离环境配置和额外驱动要求见 [测试说明](docs/TESTING.md)。GeoParquet 导出另需 GDAL Parquet driver。
+原生依赖：GDAL 开发库及匹配的运行库、libclang（`gdal` 启用 bindgen）、C/C++ 编译工具及 pkg-config；GDAL 的 PROJ 数据必须与安装匹配。新栅格/矢量 Builder 要求构建与运行的 GDAL 都至少为 3.7，以检查显式关闭结果；带空格/逗号/引号的字段投影需 3.9+。不能据此假定兼容后续所有版本；macOS CI 固定 GDAL 3.12.2，已知 3.13.3 的 C API 变动会导致编译失败。隔离环境配置和额外驱动要求见 [测试说明](docs/TESTING.md)。GeoParquet 导出另需 GDAL Parquet driver。
 
 ```sh
 # macOS，先按 docs/TESTING.md 配置 GDAL 3.12.2 的隔离环境

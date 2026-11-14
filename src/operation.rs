@@ -140,6 +140,8 @@ pub enum ErrorKind {
     Open,
     /// Native conversion failed.
     Translate,
+    /// Native raster processing failed.
+    Processing,
     /// A dataset could not be closed successfully.
     Close,
     /// Cancellation was observed by the execution path.

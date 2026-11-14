@@ -6,61 +6,10 @@ use gdal::{
     Dataset,
     errors::{GdalError, Result},
 };
-use gdal_sys::{
-    GDALWarp, GDALWarpAppOptions, GDALWarpAppOptionsFree, GDALWarpAppOptionsNew,
-    GDALWarpAppOptionsSetProgress,
-};
-use libc::c_char;
-use std::ffi::{CString, c_void};
+use gdal_sys::{GDALWarp, GDALWarpAppOptions};
 use std::ptr::{null, null_mut};
 
-pub struct WarpOptions {
-    c_options: *mut GDALWarpAppOptions,
-}
-
-impl WarpOptions {
-    pub fn new<S: Into<Vec<u8>>, I: IntoIterator<Item = S>>(args: I) -> Result<Self> {
-        let cstr_args = args
-            .into_iter()
-            .map(CString::new)
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        let mut c_args = cstr_args
-            .iter()
-            .map(|x| x.as_ptr() as *mut c_char)
-            .chain(std::iter::once(null_mut()))
-            .collect::<Vec<_>>();
-
-        // SAFETY: the null-terminated argv and its CString buffers outlive synchronous option parsing.
-        let c_options = unsafe { GDALWarpAppOptionsNew(c_args.as_mut_ptr(), null_mut()) };
-        if c_options.is_null() {
-            return Err(last_null_pointer_err("GDALWarpAppOptionsNew"));
-        }
-
-        Ok(Self { c_options })
-    }
-
-    /// # Safety
-    /// The callback and user_data must remain valid until every GDAL call using these options returns.
-    pub(crate) unsafe fn set_progress(
-        &mut self,
-        callback: gdal_sys::GDALProgressFunc,
-        user_data: *mut c_void,
-    ) {
-        // SAFETY: options owns a valid handle; the caller guarantees the callback's state lifetime.
-        unsafe {
-            GDALWarpAppOptionsSetProgress(self.c_options, callback, user_data);
-        }
-    }
-}
-
-impl Drop for WarpOptions {
-    fn drop(&mut self) {
-        // SAFETY: new rejects null handles and this wrapper exclusively owns the options.
-        unsafe {
-            GDALWarpAppOptionsFree(self.c_options);
-        }
-    }
-}
+pub(crate) use super::utility::WarpOptions;
 
 impl TryFrom<Vec<&str>> for WarpOptions {
     type Error = GdalError;
@@ -95,14 +44,10 @@ where
 
 fn _warp(
     src: &Dataset,
-    mut dest: DatasetDestination,
+    dest: DatasetDestination,
     options: Option<&WarpOptions>,
 ) -> Result<Dataset> {
-    let (psz_dest_option, h_dst_ds) = match &dest {
-        DatasetDestination::Path(c_path) => (Some(c_path), null_mut()),
-        DatasetDestination::Dataset { dataset, .. } => (None, dataset.c_dataset()),
-    };
-    let psz_dest = psz_dest_option.map(|x| x.as_ptr()).unwrap_or_else(null);
+    let DatasetDestination::Path(path) = dest;
     let c_options = options
         .map(|x| x.c_options as *const GDALWarpAppOptions)
         .unwrap_or(null());
@@ -111,8 +56,8 @@ fn _warp(
     let dataset_out = unsafe {
         let mut sources = vec![src.c_dataset()];
         GDALWarp(
-            psz_dest,
-            h_dst_ds,
+            path.as_ptr(),
+            null_mut(),
             sources.len() as i32,
             sources.as_mut_ptr(),
             c_options,
@@ -124,12 +69,7 @@ fn _warp(
         return Err(last_null_pointer_err("GDALWarp"));
     }
 
-    // SAFETY: the successful call returned the destination handle, transferring its ownership.
-    unsafe {
-        dest.relinquish_dataset_ownership();
-    }
-
-    // SAFETY: the result is non-null and the moved-in destination will no longer free it.
+    // SAFETY: the non-null result transfers a newly owned output handle.
     let result = unsafe { Dataset::from_c_dataset(dataset_out) };
     Ok(result)
 }

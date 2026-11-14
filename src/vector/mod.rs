@@ -5,5 +5,5 @@ mod target;
 mod translate;
 
 pub use native::NativeTranslate;
-pub use options::{Dimensions, ErrorPolicy, SqlDialect, WriteMode};
+pub use options::{Clip, Dimensions, ErrorPolicy, GeometryType, SqlDialect, WriteMode};
 pub use translate::Translate;

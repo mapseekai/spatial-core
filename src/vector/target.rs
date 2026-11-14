@@ -1,9 +1,11 @@
 use super::options::{Dimensions, TranslateOptions, WriteMode, validate_layer_name};
 use crate::dataset::{Source, local_name};
+use crate::gdal_ext::output::{absolute_output, check_vector_creation};
+pub(crate) use crate::gdal_ext::output::{reject_alias, reject_dataset_alias};
 use crate::operation::{Error, ErrorKind, Result, Stage};
 use gdal::spatial_ref::{AxisMappingStrategy, SpatialRef};
 use gdal::vector::{LayerAccess, OGRwkbGeometryType};
-use gdal::{Dataset, Driver, DriverManager, DriverType, Metadata};
+use gdal::{Dataset, Driver, DriverManager, DriverType};
 use std::ffi::CString;
 use std::path::{Path, PathBuf};
 
@@ -20,6 +22,12 @@ pub(super) fn prepare(
     output: &Path,
     options: &TranslateOptions,
 ) -> Result<Target> {
+    for clip in [&options.clip_source, &options.clip_destination]
+        .into_iter()
+        .flatten()
+    {
+        clip.validate_geometry()?;
+    }
     let path = absolute_output(output)?;
     reject_alias(source, &path)?;
     let driver = if let Some(name) = &options.driver {
@@ -53,7 +61,7 @@ pub(super) fn prepare(
         ));
     }
     if options.write_mode == WriteMode::CreateDataset {
-        check_creation(&path, driver.as_ref().expect("creation driver"), count)?;
+        check_vector_creation(&path, driver.as_ref().expect("creation driver"), count)?;
     } else if !path.try_exists().map_err(io_error)? {
         return Err(Error::new(
             ErrorKind::Open,
@@ -77,227 +85,6 @@ pub(super) fn prepare(
         driver: driver_name,
         layers,
     })
-}
-
-fn absolute_output(path: &Path) -> Result<PathBuf> {
-    local_name(path)?;
-    if path
-        .to_str()
-        .is_some_and(|v| v.contains("://") || v.starts_with("/vsi") || v.starts_with("PG:"))
-    {
-        return Err(Error::invalid(
-            "typed output must be a local path; use NativeTranslate for GDAL names",
-        ));
-    }
-    let filename = path
-        .file_name()
-        .ok_or_else(|| Error::invalid("output must name a file or new dataset directory"))?;
-    let parent = path
-        .parent()
-        .filter(|v| !v.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    Ok(parent.canonicalize().map_err(io_error)?.join(filename))
-}
-
-pub(super) fn reject_alias(source: &Source, output: &Path) -> Result<()> {
-    let Some(input) = source.local_path() else {
-        return Ok(());
-    };
-    reject_file_alias(input, output)
-}
-
-fn reject_file_alias(input: &Path, output: &Path) -> Result<()> {
-    let input = input.canonicalize().map_err(io_error)?;
-    let resolved = output
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-        .canonicalize()
-        .ok()
-        .and_then(|parent| output.file_name().map(|name| parent.join(name)));
-    let output = resolved.as_deref().unwrap_or(output);
-    if let Ok(target) = output.canonicalize() {
-        if target == input
-            || input.is_dir() && target.starts_with(&input)
-            || target.is_dir() && input.starts_with(&target)
-        {
-            return Err(Error::invalid("input and output refer to the same dataset"));
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            let a = input.metadata().map_err(io_error)?;
-            let b = target.metadata().map_err(io_error)?;
-            if a.dev() == b.dev() && a.ino() == b.ino() {
-                return Err(Error::invalid(
-                    "input and output are hard links to the same dataset",
-                ));
-            }
-        }
-    } else if input.is_dir() && output.starts_with(&input) {
-        return Err(Error::invalid(
-            "output must not be inside the source dataset directory",
-        ));
-    }
-    Ok(())
-}
-
-pub(super) fn reject_dataset_alias(input: &Dataset, output: &Path) -> Result<()> {
-    let mut targets = vec![output.to_owned()];
-    if output.extension().is_some_and(|extension| {
-        ["shp", "dbf", "shx"]
-            .iter()
-            .any(|known| extension.eq_ignore_ascii_case(known))
-    }) {
-        targets.extend(shapefile_companions(output)?);
-    } else if output
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("gpkg"))
-    {
-        for suffix in ["-wal", "-shm", "-journal"] {
-            let mut path = output.as_os_str().to_owned();
-            path.push(suffix);
-            targets.push(path.into());
-        }
-    } else if output.is_dir() {
-        for entry in std::fs::read_dir(output).map_err(io_error)? {
-            targets.push(entry.map_err(io_error)?.path());
-        }
-    }
-    struct Files(*mut *mut std::ffi::c_char);
-    impl Drop for Files {
-        fn drop(&mut self) {
-            // SAFETY: GDALGetFileList transfers this list to the caller; null is accepted.
-            unsafe { gdal_sys::CSLDestroy(self.0) };
-        }
-    }
-    // SAFETY: input is live; the returned list is independently owned.
-    let files = Files(unsafe { gdal_sys::GDALGetFileList(input.c_dataset()) });
-    if files.0.is_null() {
-        return Ok(());
-    }
-    let mut entry = files.0;
-    // SAFETY: GDAL returns a null-terminated array of NUL-terminated filenames.
-    while !unsafe { *entry }.is_null() {
-        // SAFETY: the current non-null entry lives until Files is dropped.
-        let name = unsafe { std::ffi::CStr::from_ptr(*entry) };
-        #[cfg(unix)]
-        let path = {
-            use std::os::unix::ffi::OsStrExt;
-            Path::new(std::ffi::OsStr::from_bytes(name.to_bytes()))
-        };
-        #[cfg(not(unix))]
-        let path =
-            Path::new(name.to_str().map_err(|e| {
-                Error::unsupported("cannot inspect dataset filenames").with_source(e)
-            })?);
-        if path.exists() {
-            for target in &targets {
-                reject_file_alias(path, target)?;
-            }
-        }
-        // SAFETY: advance within this null-terminated array; the next iteration checks its terminator.
-        entry = unsafe { entry.add(1) };
-    }
-    Ok(())
-}
-
-fn check_creation(path: &Path, driver: &Driver, layer_count: usize) -> Result<()> {
-    if std::fs::symlink_metadata(path).is_ok() {
-        return Err(output_exists());
-    }
-    if driver.metadata_item("DCAP_VECTOR", "").as_deref() != Some("YES")
-        || !(driver.metadata_item("DCAP_CREATE", "").as_deref() == Some("YES")
-            || driver
-                .metadata_item("DCAP_VECTOR_TRANSLATE_FROM", "")
-                .as_deref()
-                == Some("YES"))
-    {
-        return Err(Error::unsupported(
-            "selected driver cannot create vector output",
-        ));
-    }
-    if layer_count > 1
-        && driver
-            .metadata_item("DCAP_MULTIPLE_VECTOR_LAYERS", "")
-            .as_deref()
-            != Some("YES")
-    {
-        return Err(Error::unsupported(
-            "selected driver does not support multiple vector layers",
-        ));
-    }
-    match driver.short_name().as_str() {
-        "GPKG" => {
-            for suffix in ["-wal", "-shm", "-journal"] {
-                let mut companion = path.as_os_str().to_owned();
-                companion.push(suffix);
-                if std::fs::symlink_metadata(Path::new(&companion)).is_ok() {
-                    return Err(output_exists());
-                }
-            }
-        }
-        "ESRI Shapefile" => {
-            if path
-                .extension()
-                .is_some_and(|v| v.eq_ignore_ascii_case("shp") || v.eq_ignore_ascii_case("dbf"))
-                && !shapefile_companions(path)?.is_empty()
-            {
-                return Err(output_exists());
-            }
-        }
-        "GeoJSON" | "FlatGeobuf" | "Parquet" | "PGDUMP" => {}
-        _ => {
-            if std::fs::read_dir(path.parent().expect("absolute path"))
-                .map_err(io_error)?
-                .next()
-                .is_some()
-            {
-                return Err(Error::unsupported(
-                    "unverified output driver requires a caller-owned empty output directory",
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn shapefile_companions(path: &Path) -> Result<Vec<PathBuf>> {
-    let Some(stem) = path.file_stem() else {
-        return Ok(Vec::new());
-    };
-    let stem = stem.as_encoded_bytes();
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    if !parent.is_dir() {
-        return Ok(Vec::new());
-    }
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(parent).map_err(io_error)? {
-        let entry = entry.map_err(io_error)?;
-        let name = entry.file_name();
-        let bytes = name.as_encoded_bytes();
-        if bytes.len() <= stem.len()
-            || bytes[stem.len()] != b'.'
-            || !bytes[..stem.len()].eq_ignore_ascii_case(stem)
-        {
-            continue;
-        }
-        let suffix = &bytes[stem.len() + 1..];
-        if [
-            "shp", "shx", "dbf", "prj", "cpg", "qix", "sbn", "sbx", "fbn", "fbx", "ain", "aih",
-            "ixs", "mxs", "idm", "ind", "qpj", "shp.xml", "dbf.xml",
-        ]
-        .iter()
-        .any(|known| suffix.eq_ignore_ascii_case(known.as_bytes()))
-            || suffix.ends_with(b".atx")
-        {
-            files.push(entry.path());
-        }
-    }
-    Ok(files)
 }
 
 fn selected_layers(input: &Dataset, options: &TranslateOptions) -> Result<Vec<String>> {
@@ -387,7 +174,7 @@ pub(super) fn check_update(
                     "CreateLayer for Shapefile requires a directory dataset",
                 ));
             }
-            check_creation(
+            check_vector_creation(
                 &target.path.join(format!("{name}.shp")),
                 &output.driver(),
                 1,
@@ -526,13 +313,6 @@ fn axis_mapping(srs: &SpatialRef) -> Vec<i32> {
     unsafe { std::slice::from_raw_parts(mapping, count as usize) }.to_vec()
 }
 
-fn output_exists() -> Error {
-    Error::new(
-        ErrorKind::OutputExists,
-        Stage::Prepare,
-        "output dataset or companion file already exists",
-    )
-}
 fn io_error(error: std::io::Error) -> Error {
     Error::invalid("cannot inspect the local dataset path").with_source(error)
 }

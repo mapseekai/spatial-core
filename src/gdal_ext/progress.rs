@@ -14,25 +14,44 @@ struct Callback<'a> {
 /// GDAL may call from native workers. A shared pointer and this mutex protect
 /// the borrowed FnMut; the synchronous caller must keep the state alive.
 pub(crate) struct ProgressCallbackState<'a> {
-    inner: Mutex<Callback<'a>>,
+    inner: Option<Mutex<Callback<'a>>>,
 }
 
 impl<'a> ProgressCallbackState<'a> {
     pub(crate) fn new(callback: &'a mut (dyn FnMut(Progress) -> bool + Send)) -> Self {
+        Self::optional(Some(callback))
+    }
+
+    pub(crate) fn optional(callback: Option<&'a mut (dyn FnMut(Progress) -> bool + Send)>) -> Self {
         Self {
-            inner: Mutex::new(Callback {
-                callback,
-                interruption: None,
+            inner: callback.map(|callback| {
+                Mutex::new(Callback {
+                    callback,
+                    interruption: None,
+                })
             }),
         }
     }
 
+    pub(crate) fn native_callback(&self) -> gdal_sys::GDALProgressFunc {
+        if self.inner.is_some() {
+            GDAL_PROGRESS_TRAMPOLINE
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn user_data(&mut self) -> *mut c_void {
-        (self as *mut Self).cast()
+        if self.inner.is_some() {
+            (self as *mut Self).cast()
+        } else {
+            std::ptr::null_mut()
+        }
     }
 
     pub(crate) fn interruption(&self) -> Option<ErrorKind> {
         self.inner
+            .as_ref()?
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .interruption
@@ -64,7 +83,10 @@ unsafe extern "C" fn trampoline(fraction: f64, message: *const c_char, data: *mu
     // SAFETY: the owner keeps the state at this address until all synchronous
     // native callbacks finish. Only the mutex grants mutable access.
     let state = unsafe { &*data.cast::<ProgressCallbackState<'_>>() };
-    let mut state = state.inner.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(inner) = &state.inner else {
+        return 1;
+    };
+    let mut state = inner.lock().unwrap_or_else(|e| e.into_inner());
     if state.interruption.is_some() {
         return 0;
     }
@@ -109,6 +131,15 @@ unsafe extern "C" fn trampoline(fraction: f64, message: *const c_char, data: *mu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absent_control_does_not_install_a_native_callback() {
+        let mut state = ProgressCallbackState::optional(None);
+        assert!(state.native_callback().is_none());
+        assert!(state.user_data().is_null());
+        assert!(state.interruption().is_none());
+        assert!(state.check().is_ok());
+    }
 
     #[test]
     fn fractions_and_messages_are_normalized_and_null_state_is_safe() {

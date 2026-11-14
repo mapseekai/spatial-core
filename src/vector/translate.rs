@@ -1,15 +1,17 @@
 use super::{Dimensions, ErrorPolicy, SqlDialect, WriteMode};
 use super::{native, options::TranslateOptions, target};
+#[cfg(test)]
+use crate::gdal_ext::execution::record_close;
+use crate::gdal_ext::execution::{close, supported_version};
 use crate::{
     config::gdal::GdalOptions,
     dataset::{self, Source},
     gdal_ext::{
         diagnostics::Diagnostics, progress::ProgressCallbackState, vector::translate as ffi,
     },
-    operation::{
-        CleanupError, Control, Error, ErrorKind, OutputState, Progress, Report, Result, Stage,
-    },
+    operation::{Control, Error, ErrorKind, OutputState, Progress, Report, Result, Stage},
 };
+#[cfg(test)]
 use gdal::Dataset;
 use std::{
     fmt,
@@ -119,6 +121,37 @@ impl Translate {
     /// Explicitly select coordinate dimensions.
     pub fn dimensions(mut self, dimensions: Dimensions) -> Self {
         self.options.dimensions = Some(dimensions);
+        self
+    }
+    /// Clip before reprojection, in source CRS units.
+    pub fn clip_source(mut self, clip: super::Clip) -> Self {
+        self.options.clip_source = Some(clip);
+        self
+    }
+    /// Clip after reprojection, in destination CRS units.
+    pub fn clip_destination(mut self, clip: super::Clip) -> Self {
+        self.options.clip_destination = Some(clip);
+        self
+    }
+    /// Simplify in source CRS units before reprojection; conflicts with segmentize.
+    pub fn simplify(mut self, tolerance: f64) -> Self {
+        self.options.simplify = Some(tolerance);
+        self
+    }
+    /// Add vertices to limit segment length in source CRS units before reprojection.
+    pub fn segmentize(mut self, max_distance: f64) -> Self {
+        self.options.segmentize = Some(max_distance);
+        self
+    }
+    /// Write collection members as separate features; output FIDs may change.
+    pub fn explode_collections(mut self, enabled: bool) -> Self {
+        self.options.explode_collections = enabled;
+        self
+    }
+    /// Explicitly convert output geometry type.
+    /// Concrete types require `dimensions` to avoid implicit loss of Z/M coordinates.
+    pub fn geometry_type(mut self, geometry_type: super::GeometryType) -> Self {
+        self.options.geometry_type = Some(geometry_type);
         self
     }
     /// Opt in to GDAL's geometry repair operation.
@@ -311,40 +344,6 @@ pub(super) fn execute(
         Err(error)
     } else {
         Ok(report)
-    }
-}
-
-fn supported_version() -> Result<u32> {
-    let build = env!("SPATIAL_CORE_GDAL_BUILD_VERSION")
-        .parse::<u32>()
-        .unwrap_or(0);
-    let runtime = gdal::version::version_info("VERSION_NUM")
-        .parse::<u32>()
-        .unwrap_or(0);
-    if build < 3_070_000 || runtime < 3_070_000 {
-        return Err(Error::unsupported(
-            "checked dataset close requires build-time and runtime GDAL >= 3.7",
-        ));
-    }
-    Ok(build.min(runtime))
-}
-
-fn close(dataset: Option<Dataset>, stage: Stage, primary: &mut Option<Error>) {
-    if let Some(dataset) = dataset {
-        record_close(dataset.close(), stage, primary);
-    }
-}
-
-fn record_close(result: gdal::errors::Result<()>, stage: Stage, primary: &mut Option<Error>) {
-    if let Err(source) = result {
-        let error = primary.get_or_insert_with(|| {
-            Error::new(
-                ErrorKind::Close,
-                stage,
-                "dataset close failed; inspect cleanup errors",
-            )
-        });
-        error.cleanup.push(CleanupError { stage, source });
     }
 }
 
@@ -1337,6 +1336,173 @@ mod tests {
         }
         drop(debug_scope);
         drop(outer);
+        Ok(())
+    }
+    #[test]
+    fn geometry_processing_clips_simplifies_segmentizes_and_explodes() -> anyhow::Result<()> {
+        use crate::vector::{Clip, GeometryType};
+        let dir = tempfile::tempdir()?;
+        let src = dir.path().join("lines.geojson");
+        std::fs::write(
+            &src,
+            r#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"label":"road"},"geometry":{"type":"LineString","coordinates":[[0,0],[1,0.1],[2,0]]}}]}"#,
+        )?;
+        let clipped = dir.path().join("clipped.gpkg");
+        let _ = Translate::new(&src, &clipped)
+            .clip_source(Clip::Bounds([0.5, -0.5, 1.5, 0.5]))
+            .run()?;
+        let ds = Dataset::open(clipped)?;
+        let mut layer = ds.layer(0)?;
+        let f = layer.features().next().unwrap();
+        let envelope = f.geometry().unwrap().envelope();
+        assert_eq!((envelope.MinX, envelope.MaxX), (0.5, 1.5));
+        drop(f);
+        ds.close()?;
+        let simple = dir.path().join("simple.gpkg");
+        let _ = Translate::new(&src, &simple).simplify(0.2).run()?;
+        let ds = Dataset::open(simple)?;
+        let mut layer = ds.layer(0)?;
+        let f = layer.features().next().unwrap();
+        assert_eq!(f.geometry().unwrap().point_count(), 2);
+        drop(f);
+        ds.close()?;
+        let dense = dir.path().join("dense.gpkg");
+        let _ = Translate::new(&src, &dense).segmentize(0.5).run()?;
+        let ds = Dataset::open(dense)?;
+        let mut layer = ds.layer(0)?;
+        let f = layer.features().next().unwrap();
+        assert!(f.geometry().unwrap().point_count() > 3);
+        drop(f);
+        ds.close()?;
+        let collection = dir.path().join("multi.geojson");
+        std::fs::write(
+            &collection,
+            r#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"pair"},"geometry":{"type":"MultiPoint","coordinates":[[0,0],[1,1]]}}]}"#,
+        )?;
+        let single = dir.path().join("single.gpkg");
+        let _ = Translate::new(&collection, &single)
+            .explode_collections(true)
+            .geometry_type(GeometryType::Point)
+            .dimensions(Dimensions::Xy)
+            .run()?;
+        assert_eq!(Dataset::open(single)?.layer(0)?.feature_count(), 2);
+        assert!(
+            Translate::new(&src, dir.path().join("invalid.gpkg"))
+                .simplify(1.)
+                .segmentize(1.)
+                .run()
+                .is_err()
+        );
+        assert!(
+            Translate::new(&src, dir.path().join("not-wkt.gpkg"))
+                .clip_source(Clip::Wkt(src.to_string_lossy().into_owned()))
+                .run()
+                .is_err()
+        );
+        Ok(())
+    }
+    #[test]
+    fn sql_spatial_processing_and_destination_clip_are_read_back() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        let src = dir.path().join("points.geojson");
+        std::fs::write(
+            &src,
+            r#"{"type":"FeatureCollection","name":"points","features":[{"type":"Feature","properties":{"name":"p"},"geometry":{"type":"Point","coordinates":[1,1]}}]}"#,
+        )?;
+        let buffered = dir.path().join("buffer.gpkg");
+        let _ = Translate::new(&src, &buffered)
+            .sql(
+                "SELECT ST_Buffer(geometry, 0.1) AS geometry, name FROM points",
+                SqlDialect::Sqlite,
+            )
+            .run()?;
+        let ds = Dataset::open(buffered)?;
+        let mut layer = ds.layer(0)?;
+        let f = layer.features().next().unwrap();
+        let area = f.geometry().unwrap().area();
+        assert!(area > 0.03 && area < 0.032);
+        drop(f);
+        ds.close()?;
+        let clipped = dir.path().join("clip.gpkg");
+        let _ = Translate::new(&src, &clipped)
+            .reproject_to("EPSG:3857")
+            .clip_destination(crate::vector::Clip::Bounds([
+                110000., 110000., 112000., 112000.,
+            ]))
+            .run()?;
+        assert_eq!(Dataset::open(&clipped)?.layer(0)?.feature_count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn concrete_geometry_types_require_and_preserve_explicit_dimensions() -> anyhow::Result<()> {
+        use crate::vector::GeometryType;
+        use gdal::{
+            DriverManager,
+            vector::{Geometry, LayerOptions},
+        };
+        let dir = tempfile::tempdir()?;
+        for (name, dimensions, wkt, expected) in [
+            ("z", Dimensions::Xyz, "POINT Z (1 2 3)", (1., 2., 3., 0.)),
+            ("m", Dimensions::Xym, "POINT M (1 2 4)", (1., 2., 0., 4.)),
+            (
+                "zm",
+                Dimensions::Xyzm,
+                "POINT ZM (1 2 3 4)",
+                (1., 2., 3., 4.),
+            ),
+        ] {
+            let src = dir.path().join(format!("{name}.gpkg"));
+            let mut ds = DriverManager::get_driver_by_name("GPKG")?.create_vector_only(&src)?;
+            let geometry = Geometry::from_wkt(wkt)?;
+            ds.create_layer(LayerOptions {
+                name: "points",
+                ty: geometry.geometry_type(),
+                ..Default::default()
+            })?
+            .create_feature(geometry)?;
+            ds.close()?;
+            let missing = dir.path().join(format!("{name}-missing.gpkg"));
+            let error = Translate::new(&src, &missing)
+                .geometry_type(GeometryType::MultiPoint)
+                .run()
+                .unwrap_err();
+            assert_eq!(error.output_state(), OutputState::NotModified);
+            assert!(!missing.exists());
+            for (label, job, expected) in [
+                (
+                    "concrete",
+                    Translate::new(&src, dir.path().join(format!("{name}-concrete.gpkg")))
+                        .geometry_type(GeometryType::MultiPoint)
+                        .dimensions(dimensions),
+                    expected,
+                ),
+                (
+                    "semantic",
+                    Translate::new(&src, dir.path().join(format!("{name}-semantic.gpkg")))
+                        .geometry_type(GeometryType::PromoteToMulti),
+                    expected,
+                ),
+                (
+                    "xy",
+                    Translate::new(&src, dir.path().join(format!("{name}-xy.gpkg")))
+                        .geometry_type(GeometryType::MultiPoint)
+                        .dimensions(Dimensions::Xy),
+                    (1., 2., 0., 0.),
+                ),
+            ] {
+                let _ = job.run()?;
+                let ds = Dataset::open(dir.path().join(format!("{name}-{label}.gpkg")))?;
+                let mut layer = ds.layer(0)?;
+                let feature = layer.features().next().unwrap();
+                assert_eq!(
+                    feature.geometry().unwrap().get_geometry(0).get_point_zm(0),
+                    expected
+                );
+                drop(feature);
+                ds.close()?;
+            }
+        }
         Ok(())
     }
 }

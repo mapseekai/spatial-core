@@ -54,7 +54,7 @@ cargo test --locked --lib vector::translate::tests::optional_geoparquet_roundtri
 
 桌面或其他真实数据可用 `cargo run --locked --example vector_convert -- INPUT NEW_OUTPUT DRIVER [LAYER]` 转换并重新打开核对要素数。输出须使用新临时目录；大文件耗时、内存观察、字段/CRS 抽检另记，不把要素数相同等同于无损。GDAL 3.12.2 实测 FlatGeobuf 字符串 NULL 在读回时可能为空串，Shapefile 的字段名/类型也存在格式限制；这些限制由回归明确区分。
 
-关闭错误组合通过最小私有 `record_close` 故障接缝验证，不模拟整个 GDAL。它证明主错误及两个关闭错误不会互相覆盖；不等于对所有驱动或真实磁盘耗尽做了故障注入。
+关闭错误组合通过最小私有 `record_close` 故障接缝验证，不模拟整个 GDAL。它证明主错误及两个关闭错误不会互相覆盖；另用真实 NativeBuildVrt 向目录路径写入，覆盖延迟写入时 GDALClose 返回成功但 CPL 报失败的路径，核对 `Close / CloseOutput`、诊断与清理错误。该回归分别使用空 Control 和仅取消 token；不等于对所有驱动或真实磁盘耗尽做了故障注入。
 
 ## 真实数据库回归
 
@@ -100,3 +100,14 @@ TLS 不作为所有测试的隐式要求。需要额外验证时，使用调用�
 macOS 的 Homebrew GDAL 和 PostGIS 必须链接相容的 native 库。若安装了多个 GDAL keg，不要为测试擅自重写全局 symlink；使用独立测试进程或容器的匹配环境。测试数据库和目标目录应独立，不复用用户生产数据库。
 
 重构后的实测详情见 [GDAL 验证记录](GDAL_VALIDATION.md) 和 [PostGIS 验证记录](POSTGIS_VALIDATION.md)。[提取基线验证记录](VALIDATION.md) 保留当时事实，不作为当前 API 的测试结果。
+
+## GDAL 栅格与矢量处理
+
+新入口见 [处理设计](GDAL_PROCESSING_DESIGN.md)。默认测试逐项创建并读回真实 GDAL 数据，覆盖窗口/像元类型/NoData、重投影拼接、VRT 依赖、坡度与颜色表、属性栅格化、连通分类矢量化、三维等值线、填洞和筛选，以及裁剪/简化/加密/SQL buffer。
+
+共用执行路径还测试预取消、各算法回调取消和 panic、原生参数边界、输出及伴随文件冲突、别名、CPL 状态恢复和来源文件保留。`check.sh` 执行四个自包含转换/处理示例。真实桌面数据验证记录见 [本轮验证](GDAL_PROCESSING_VALIDATION.md)，不把默认忽略的数据库或可选 Parquet 测试计为通过。
+
+审查回归另外覆盖：具体几何类型的 Z/M/ZM 保留、Shapefile 字段缩名、Int8 分类、多波段联合 NoData 与显式 UInt8 mask、混合波段类型复制拒绝、FillNodata 高精度保护、大小写驱动名和辅助输入别名、COG/FillNodata 临时文件隔离。Fill/Sieve 取消和 panic 除复制阶段外，还单独覆盖复制完成后的原生算法阶段。
+
+
+2026-11-14 对抗审查修复回归还覆盖：BuildVrt typed/native 拒绝不能持久化的源打开选项，原输出保持不变，Translate VRT 代理路径关闭重开后像元一致；驱动目标后补时仍识别已登记源的别名；目录包含、软链接、硬链接及伴随文件保护；多输入打开之间的确定性取消；七类波段入口及三类显式掩膜的零、越界、整数溢出错误契约；空 Control 不安装原生回调；低层 Translate/Warp 输出关闭不释放借用输入。性能探针使用 release 构建、交替顺序和相同读回校验，记录中位数，不在 CI 中设置受机器负载影响的耗时断言。

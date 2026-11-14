@@ -2,7 +2,7 @@ use super::translate::{Request, execute};
 use crate::{
     config::gdal::GdalOptions,
     dataset::Source,
-    operation::{Control, Error, Report, Result},
+    operation::{Control, Report, Result},
 };
 use std::{
     fmt,
@@ -70,29 +70,4 @@ impl NativeTranslate {
     }
 }
 
-pub(super) fn validate_args(args: &[String]) -> Result<()> {
-    for token in args {
-        // Empty tokens are valid values (for example -select "").
-        if token.contains('\0') {
-            return Err(Error::invalid("native argument contains NUL"));
-        }
-        let flag = token
-            .split_once('=')
-            .map_or(token.as_str(), |(flag, _)| flag);
-        if [
-            "-oo",
-            "-if",
-            "--config",
-            "--thread-local-config",
-            "--config-file",
-        ]
-        .iter()
-        .any(|reserved| flag.eq_ignore_ascii_case(reserved))
-        {
-            return Err(Error::invalid(
-                "input/configuration flags are reserved; use Source and GdalOptions",
-            ));
-        }
-    }
-    Ok(())
-}
+pub(super) use crate::gdal_ext::execution::validate_native_args as validate_args;

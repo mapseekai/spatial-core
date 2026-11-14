@@ -51,6 +51,32 @@ mod tests {
     use gdal::{DriverManager, raster::Buffer, spatial_ref::SpatialRef};
     use tempfile::TempDir;
 
+    #[test]
+    fn path_destinations_close_independently_of_the_borrowed_source() -> Result<()> {
+        use crate::raster::test_support::{fixture, pixels};
+        let dir = TempDir::new()?;
+        let src = dir.path().join("source.tif");
+        fixture(&src, 2, 2, &[1u8, 2, 3, 4])?;
+        let source = Dataset::open(&src)?;
+        for warp in [false, true] {
+            let path = dir.path().join(format!("converted-{warp}.tif"));
+            let output = if warp {
+                warp_to_path_with_progress(&source, &path, vec!["-of", "GTiff"], |_| true)?
+            } else {
+                translate_to_path_with_progress(&source, &path, vec!["-of", "GTiff"], |_| true)?
+            };
+            output.close()?;
+            assert_eq!(pixels(&path)?, [1., 2., 3., 4.]);
+            assert_eq!(
+                source.rasterband(1)?.read_band_as::<u8>()?.data(),
+                &[1, 2, 3, 4]
+            );
+        }
+        source.close()?;
+        assert_eq!(pixels(&src)?, [1., 2., 3., 4.]);
+        Ok(())
+    }
+
     fn create_epsg4326_source(path: &Path) {
         const SIZE: usize = 256;
 
