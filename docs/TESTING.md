@@ -38,7 +38,24 @@ bash scripts/ci/check.sh
 
 Conda 动态库使用 `@rpath`，因此除了 Rust 编译时的库搜索路径，还需上述运行时 rpath；`RUSTDOCFLAGS` 同样配置，避免 doctest 生成的独立程序找不到 GDAL。该配置只影响当前测试进程，不重写 Homebrew symlink 或生产软件。macOS 仍执行完整 `check.sh`；Linux 的默认检查、全部数据库回归和数据库示例保持不变。
 
-GeoParquet 需要 GDAL Parquet driver。当前默认回归不会证明这个可选原生驱动可用，也不覆盖真实 S3、服务端算子/Temporal、Windows 或生产负载。本次独立 TLS 实测单列于验证记录，不是默认 CI 的一部分。
+GDAL 路径的 GeoParquet 需要 GDAL Parquet driver；可选 DuckDB 后端使用自己的原生 Parquet reader。当前默认回归不会证明系统 GDAL 的可选 Parquet driver 可用，也不覆盖真实 S3、服务端算子/Temporal、Windows 或生产负载。本次独立 TLS 实测单列于验证记录，不是默认 CI 的一部分。
+
+## 可选 DuckDB 后端
+
+按 [部署说明](DUCKDB.md) 构建并签名修补后的 Spatial，预置匹配的官方 httpfs，再执行：
+
+```sh
+CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
+SPATIAL_CORE_DUCKDB_EXTENSION_DIR=/your/deployment/duckdb-extensions \
+SPATIAL_CORE_DUCKDB_SPATIAL_PUBLIC_KEY=/your/trusted/spatial-public.pem \
+  bash scripts/ci/test-duckdb.sh
+```
+
+上述 Cargo 设置与 DuckDB CI 一致。签名扩展须由当前工作区的 Spatial 和内嵌 GDAL 补丁构建；仅版本号相同不能证明其包含同一组修复。
+
+默认 feature 不编译 DuckDB；开启 feature 的普通测试仍忽略需要外部扩展的集成测试。脚本显式选中 `duckdb::` 的 ignored 项，缺扩展失败，不影响独立 PostGIS 测试选择。
+
+集成测试生成 GeoParquet、GeoJSON、FGB、GPKG、Shapefile、KML、GML、CSV，覆盖系统 GDAL 共存、GDAL 多图层/open options/sibling files、损坏数据与 VRT SQL 首条/中途/跨批次失败、真正的零行结果、签名篡改与资源清理。HTTP/S3 fixture 覆盖 Range/无 Range、单一 Authorization、静态 S3 签名头、跨源重定向、scope authority 边界、403/截断和跨 Session 凭据隔离；自定义 HTTP headers/S3 session token 在注册前拒绝。本地 S3 fixture 不验证签名密码学正确性，不能代替真实 AWS S3 验收。测试需要本机 TCP socket。另验证 bigint/decimal/纳秒、未知 CRS/多几何列、M 拒绝、取消/回调 panic/中途 fetch 错误、输出预算和目标保护，以及常见空间 SQL 的坐标/面积/边界语义。实际通过的格式 × 协议及未测范围单列于 [DuckDB 验证记录](DUCKDB_VALIDATION.md)。
 
 ## GDAL 矢量转换回归
 

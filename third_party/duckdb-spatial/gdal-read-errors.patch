@@ -1,0 +1,412 @@
+diff --git a/src/spatial/modules/gdal/gdal_module.cpp b/src/spatial/modules/gdal/gdal_module.cpp
+index 8c19075..4d6ce10 100644
+--- a/src/spatial/modules/gdal/gdal_module.cpp
++++ b/src/spatial/modules/gdal/gdal_module.cpp
+@@ -12,6 +12,7 @@
+ #include "duckdb/common/arrow/arrow_converter.hpp"
+ #include "duckdb/common/arrow/arrow.hpp"
+ #include "duckdb/main/database.hpp"
++#include "duckdb/main/query_result.hpp"
+ #include "duckdb/planner/expression/bound_function_expression.hpp"
+ #include "duckdb/planner/expression/bound_constant_expression.hpp"
+ #include "duckdb/parser/expression/constant_expression.hpp"
+@@ -109,6 +110,32 @@ string CleanGDALMessage(const char *raw_msg) {
+ 	}
+ }
+ 
++// A driver may clear/replace CPL's last error while finishing a partial Arrow batch.
++class GDALReadErrorScope {
++public:
++	GDALReadErrorScope() {
++		CPLErrorReset();
++		CPLPushErrorHandlerEx([](CPLErr severity, int, const char *message) {
++			auto &scope = *static_cast<GDALReadErrorScope *>(CPLGetErrorHandlerUserData());
++			scope.failed |= severity >= CE_Failure;
++			// Preserve the existing fatal-error policy: GDAL otherwise aborts after this callback.
++			if (severity == CE_Fatal) {
++				throw InternalException("Fatal GDAL error: " + CleanGDALMessage(message));
++			}
++		}, this);
++	}
++	~GDALReadErrorScope() {
++		CPLPopErrorHandler();
++	}
++	bool Failed() const {
++		return failed || CPLGetLastErrorType() >= CE_Failure;
++	}
++	GDALReadErrorScope(const GDALReadErrorScope &) = delete;
++	GDALReadErrorScope &operator=(const GDALReadErrorScope &) = delete;
++private:
++	bool failed = false;
++};
++
+ // Run a DuckDB FileSystem operation from within a GDAL VSI callback, converting any C++ exception into a VSI error plus
+ // the given error return value. Exceptions must never cross the C VSI boundary
+ template <class FUNC>
+@@ -631,6 +658,32 @@ private:
+ //======================================================================================================================
+ // GDAL READ
+ //======================================================================================================================
++void BindDatasetOptions(TableFunctionBindInput &input, const DuckDBFileSystemPrefix &file_prefix,
++                        CPLStringList &dataset_options, CPLStringList &dataset_drivers,
++                        CPLStringList &dataset_sibling) {
++	const auto dataset_options_param = input.named_parameters.find("open_options");
++	if (dataset_options_param != input.named_parameters.end()) {
++		for (auto &param : ListValue::GetChildren(dataset_options_param->second)) {
++			dataset_options.AddString(StringValue::Get(param).c_str());
++		}
++	}
++
++	const auto drivers_param = input.named_parameters.find("allowed_drivers");
++	if (drivers_param != input.named_parameters.end()) {
++		for (auto &param : ListValue::GetChildren(drivers_param->second)) {
++			dataset_drivers.AddString(StringValue::Get(param).c_str());
++		}
++	}
++
++	const auto siblings_params = input.named_parameters.find("sibling_files");
++	if (siblings_params != input.named_parameters.end()) {
++		for (auto &param : ListValue::GetChildren(siblings_params->second)) {
++			dataset_sibling.AddString(file_prefix.AddPrefix(StringValue::Get(param)).c_str());
++		}
++	}
++
++}
++
+ namespace gdal_read {
+ 
+ //----------------------------------------------------------------------------------------------------------------------
+@@ -663,6 +716,7 @@ public:
+ 
+ auto Bind(ClientContext &ctx, TableFunctionBindInput &input, vector<LogicalType> &col_types,
+           vector<Identifier> &col_names) -> unique_ptr<FunctionData> {
++	GDALReadErrorScope read_errors;
+ 
+ 	auto result = make_uniq<BindData>();
+ 
+@@ -674,26 +728,7 @@ auto Bind(ClientContext &ctx, TableFunctionBindInput &input, vector<LogicalType>
+ 	result->gdal_file_path = file_prefix.AddPrefix(result->real_file_path);
+ 
+ 	// Parse options
+-	const auto dataset_options_param = input.named_parameters.find("open_options");
+-	if (dataset_options_param != input.named_parameters.end()) {
+-		for (auto &param : ListValue::GetChildren(dataset_options_param->second)) {
+-			result->dataset_options.AddString(StringValue::Get(param).c_str());
+-		}
+-	}
+-
+-	const auto drivers_param = input.named_parameters.find("allowed_drivers");
+-	if (drivers_param != input.named_parameters.end()) {
+-		for (auto &param : ListValue::GetChildren(drivers_param->second)) {
+-			result->dataset_drivers.AddString(StringValue::Get(param).c_str());
+-		}
+-	}
+-
+-	const auto siblings_params = input.named_parameters.find("sibling_files");
+-	if (siblings_params != input.named_parameters.end()) {
+-		for (auto &param : ListValue::GetChildren(siblings_params->second)) {
+-			result->dataset_sibling.AddString(file_prefix.AddPrefix(StringValue::Get(param)).c_str());
+-		}
+-	}
++	BindDatasetOptions(input, file_prefix, result->dataset_options, result->dataset_drivers, result->dataset_sibling);
+ 
+ 	const auto keep_wkb_param = input.named_parameters.find("keep_wkb");
+ 	if (keep_wkb_param != input.named_parameters.end()) {
+@@ -714,6 +749,7 @@ auto Bind(ClientContext &ctx, TableFunctionBindInput &input, vector<LogicalType>
+ 	}
+ 
+ 	// Open the dataset and get the Arrow schema
++	CPLErrorReset();
+ 	const auto dataset = GDALOpenEx(result->gdal_file_path.c_str(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
+ 	                                result->dataset_drivers, result->dataset_options, result->dataset_sibling);
+ 
+@@ -726,6 +762,9 @@ auto Bind(ClientContext &ctx, TableFunctionBindInput &input, vector<LogicalType>
+ 	ArrowArrayStream stream = {};
+ 
+ 	try {
++		if (read_errors.Failed()) {
++			ThrowGDALError("Could not open GDAL dataset");
++		}
+ 
+ 		const auto layer_count = GDALDatasetGetLayerCount(dataset);
+ 		if (layer_count <= 0) {
+@@ -776,9 +815,14 @@ auto Bind(ClientContext &ctx, TableFunctionBindInput &input, vector<LogicalType>
+ 		}
+ 
+ 		// Estimate cardinality
++		CPLErrorReset();
+ 		result->estimated_cardinality = OGR_L_GetFeatureCount(layer, 0);
++		if (read_errors.Failed()) {
++			ThrowGDALError("Could not inspect GDAL feature count");
++		}
+ 
+ 		// Get extent (Only if spatial filter is not pushed down!)
++		CPLErrorReset();
+ 		if (OGR_L_GetExtent(layer, &result->layer_extent, 0) == OGRERR_NONE) {
+ 			result->has_extent = true;
+ 		}
+@@ -801,15 +845,20 @@ auto Bind(ClientContext &ctx, TableFunctionBindInput &input, vector<LogicalType>
+ 		}
+ 
+ 		const auto geom_col_name = OGR_L_GetGeometryColumn(layer);
++		if (read_errors.Failed()) {
++			ThrowGDALError("Could not inspect GDAL layer");
++		}
+ 
+ 		// Get the arrow stream
+-		if (!OGR_L_GetArrowStream(layer, &stream, result->layer_options.List())) {
++		CPLErrorReset();
++		if (!OGR_L_GetArrowStream(layer, &stream, result->layer_options.List()) || read_errors.Failed()) {
+ 			ThrowGDALError(StringUtil::Format("Could not get GDAL Arrow stream at: %s", result->real_file_path));
+ 		}
+ 
+ 		// And the schema
+-		if (stream.get_schema(&stream, &schema) != 0) {
+-			throw IOException("Could not get GDAL Arrow schema at: %s", result->real_file_path);
++		CPLErrorReset();
++		if (stream.get_schema(&stream, &schema) != 0 || read_errors.Failed()) {
++			ThrowGDALError(StringUtil::Format("Could not get GDAL Arrow schema at: %s", result->real_file_path));
+ 		}
+ 
+ 		// Convert Arrow schema to DuckDB types
+@@ -823,8 +872,8 @@ auto Bind(ClientContext &ctx, TableFunctionBindInput &input, vector<LogicalType>
+ 				result->geometry_columns.insert(i);
+ 			}
+ 
+-			if (geom_col_name && (strcmp(geom_col_name, "") == 0) && (strcmp(child_schema.name, "wkb_geometry") == 0) &&
+-			    !result->keep_wkb) {
++			if (duck_type.id() == LogicalTypeId::GEOMETRY && geom_col_name && (strcmp(geom_col_name, "") == 0) &&
++			    (strcmp(child_schema.name, "wkb_geometry") == 0) && !result->keep_wkb) {
+ 				// Rename the geometry column to "geom" unless keep_wkb is set
+ 				col_names.push_back("geom");
+ 			} else {
+@@ -862,6 +911,12 @@ auto Bind(ClientContext &ctx, TableFunctionBindInput &input, vector<LogicalType>
+ 			// Otherwise just pass on what we got
+ 			col_types.push_back(std::move(duck_type));
+ 		}
++		for (idx_t i = 0; i < col_names.size(); i++) {
++			if (col_names[i].empty()) {
++				col_names[i] = Identifier("C" + to_string(i));
++			}
++		}
++		QueryResult::DeduplicateColumns(col_names);
+ 
+ 	} catch (...) {
+ 		// Release stream, schema and dataset
+@@ -888,6 +943,9 @@ auto Bind(ClientContext &ctx, TableFunctionBindInput &input, vector<LogicalType>
+ 		GDALClose(dataset);
+ 	}
+ 
++	if (read_errors.Failed()) {
++		ThrowGDALError("Could not bind GDAL dataset");
++	}
+ 	return std::move(result);
+ }
+ 
+@@ -1062,8 +1120,10 @@ public:
+ };
+ 
+ auto InitGlobal(ClientContext &context, TableFunctionInitInput &input) -> unique_ptr<GlobalTableFunctionState> {
++	GDALReadErrorScope read_errors;
+ 	auto &bdata = input.bind_data->Cast<BindData>();
+ 
++	CPLErrorReset();
+ 	const auto dataset = GDALOpenEx(bdata.gdal_file_path.c_str(), GDAL_OF_VECTOR | GDAL_OF_READONLY,
+ 	                                bdata.dataset_drivers, bdata.dataset_options, bdata.dataset_sibling);
+ 
+@@ -1073,6 +1133,9 @@ auto InitGlobal(ClientContext &context, TableFunctionInitInput &input) -> unique
+ 
+ 	auto result = make_uniq<GlobalState>();
+ 	result->dataset = dataset;
++	if (read_errors.Failed()) {
++		ThrowGDALError("Could not open GDAL dataset");
++	}
+ 	result->layer_options = bdata.layer_options;
+ 
+ 	const auto driver = GDALGetDatasetDriver(dataset);
+@@ -1090,9 +1153,15 @@ auto InitGlobal(ClientContext &context, TableFunctionInitInput &input) -> unique
+ 			}
+ 
+ 			// else scan through and empty the layer
+-			OGRFeatureH feature;
+-			while ((feature = OGR_L_GetNextFeature(result->layer)) != nullptr) {
+-				OGR_F_Destroy(feature);
++			while (true) {
++				GDALReadErrorScope errors;
++				OGRFeatureUniquePtr feature(OGRFeature::FromHandle(OGR_L_GetNextFeature(result->layer)));
++				if (errors.Failed()) {
++					ThrowGDALError("Could not scan preceding GDAL layer");
++				}
++				if (!feature) {
++					break;
++				}
+ 			}
+ 		}
+ 	}
+@@ -1111,13 +1180,19 @@ auto InitGlobal(ClientContext &context, TableFunctionInitInput &input) -> unique
+ 	layer_options.AddString(StringUtil::Format("MAX_FEATURES_IN_BATCH=%d", STANDARD_VECTOR_SIZE).data());
+ 	layer_options.AddString("GEOMETRY_METADATA_ENCODING=GEOARROW");
+ 
++	if (read_errors.Failed()) {
++		ThrowGDALError("Could not initialize GDAL layer");
++	}
+ 	// Open the Arrow stream
+-	if (!OGR_L_GetArrowStream(result->layer, &result->stream, result->layer_options.List())) {
++	CPLErrorReset();
++	if (!OGR_L_GetArrowStream(result->layer, &result->stream, result->layer_options.List()) ||
++	    read_errors.Failed()) {
+ 		ThrowGDALError("Could not get GDAL Arrow stream");
+ 	}
+ 
+-	if (result->stream.get_schema(&result->stream, &result->schema) != 0) {
+-		throw IOException("Could not get GDAL Arrow schema");
++	CPLErrorReset();
++	if (result->stream.get_schema(&result->stream, &result->schema) != 0 || read_errors.Failed()) {
++		ThrowGDALError("Could not get GDAL Arrow schema");
+ 	}
+ 
+ 	// Store the column types
+@@ -1135,8 +1210,15 @@ auto InitGlobal(ClientContext &context, TableFunctionInitInput &input) -> unique
+ void Scan(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
+ 	auto &state = input.global_state->Cast<GlobalState>();
+ 
+-	ArrowArray arrow_array;
+-	if (state.stream.get_next(&state.stream, &arrow_array) != 0 || arrow_array.release == nullptr) {
++	auto owned_data = make_shared_ptr<ArrowArrayWrapper>();
++	auto &arrow_array = owned_data->arrow_array;
++	GDALReadErrorScope errors;
++	const auto error = state.stream.get_next(&state.stream, &arrow_array);
++	// GDAL can return success and a partial batch after reporting a CPL failure.
++	if (error != 0 || errors.Failed()) {
++		ThrowGDALError("Could not read GDAL Arrow batch");
++	}
++	if (arrow_array.release == nullptr) {
+ 		// Finished reading
+ 		output.SetCardinality(0);
+ 		return;
+@@ -1151,11 +1233,7 @@ void Scan(ClientContext &context, TableFunctionInput &input, DataChunk &output)
+ 		auto array_state = ArrowArrayScanState(context);
+ 
+ 		// We need to make sure that our chunk will hold the ownership
+-		array_state.owned_data = make_shared_ptr<ArrowArrayWrapper>();
+-		array_state.owned_data->arrow_array = arrow_array;
+-
+-		// We set it to nullptr to effectively transfer the ownership
+-		arrow_array.release = nullptr;
++		array_state.owned_data = owned_data;
+ 
+ 		switch (arrow_type.GetPhysicalType()) {
+ 		case ArrowArrayPhysicalType::DICTIONARY_ENCODED:
+@@ -2023,6 +2101,9 @@ namespace gdal_meta {
+ class BindData final : public TableFunctionData {
+ public:
+ 	vector<OpenFileInfo> files;
++	CPLStringList dataset_options;
++	CPLStringList dataset_drivers;
++	CPLStringList dataset_sibling;
+ };
+ 
+ LogicalType GetGeometryFieldType() {
+@@ -2075,6 +2156,8 @@ auto Bind(ClientContext &context, TableFunctionBindInput &input, vector<LogicalT
+ 	types.push_back(LogicalType::LIST(GetLayerType()));
+ 
+ 	auto result = make_uniq<BindData>();
++	const auto &file_prefix = DuckDBFileSystemPrefix::GetOrCreate(context);
++	BindDatasetOptions(input, file_prefix, result->dataset_options, result->dataset_drivers, result->dataset_sibling);
+ 
+ 	// For /vsi* paths and GDAL driver-prefixed URLs (e.g., "WFS:https://..."),
+ 	// bypass MultiFileReader since these are not local file globs.
+@@ -2123,7 +2206,12 @@ static Value GetLayerData(const GDALDatasetUniquePtr &dataset) {
+ 		child_list_t<Value> layer_value_fields;
+ 
+ 		layer_value_fields.emplace_back("name", Value(layer->GetName()));
+-		layer_value_fields.emplace_back("feature_count", Value(static_cast<int64_t>(layer->GetFeatureCount())));
++		CPLErrorReset();
++		const auto feature_count = layer->GetFeatureCount(false);
++		if (CPLGetLastErrorType() >= CE_Failure) {
++			ThrowGDALError("Could not inspect GDAL feature count");
++		}
++		layer_value_fields.emplace_back("feature_count", Value(static_cast<int64_t>(feature_count)));
+ 
+ 		vector<Value> geometry_fields;
+ 		for (const auto &field : layer->GetLayerDefn()->GetGeomFields()) {
+@@ -2190,6 +2278,7 @@ static Value GetLayerData(const GDALDatasetUniquePtr &dataset) {
+ }
+ 
+ void Scan(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
++	GDALReadErrorScope read_errors;
+ 	auto &bdata = input.bind_data->Cast<BindData>();
+ 	auto &gstate = input.global_state->Cast<GlobalState>();
+ 
+@@ -2202,17 +2291,12 @@ void Scan(ClientContext &context, TableFunctionInput &input, DataChunk &output)
+ 		auto &file = bdata.files[gstate.current_idx];
+ 		auto prefixed_file_name = file_prefix.AddPrefix(file.path);
+ 
+-		GDALDatasetUniquePtr dataset;
+-		try {
+-			dataset = GDALDatasetUniquePtr(
+-			    GDALDataset::Open(prefixed_file_name.c_str(), GDAL_OF_VECTOR | GDAL_OF_VERBOSE_ERROR));
+-		} catch (...) {
+-			// Just skip anything we cant open
+-			continue;
+-		}
+-		if (!dataset) {
+-			// Open returns null when the error handler doesnt throw
+-			continue;
++		CPLErrorReset();
++		GDALDatasetUniquePtr dataset(GDALDataset::Open(
++		    prefixed_file_name.c_str(), GDAL_OF_VECTOR | GDAL_OF_VERBOSE_ERROR,
++		    bdata.dataset_drivers, bdata.dataset_options, bdata.dataset_sibling));
++		if (!dataset || read_errors.Failed()) {
++			ThrowGDALError("Could not open GDAL dataset for metadata");
+ 		}
+ 
+ 		output.data[0].SetValue(output_idx, file.path);
+@@ -2223,6 +2307,9 @@ void Scan(ClientContext &context, TableFunctionInput &input, DataChunk &output)
+ 		output_idx++;
+ 	}
+ 
++	if (read_errors.Failed()) {
++		ThrowGDALError("Could not inspect GDAL dataset");
++	}
+ 	output.SetChildCardinality(output_idx);
+ }
+ 
+@@ -2245,8 +2332,13 @@ static constexpr auto EXAMPLE = R"(
+ 	)";
+ 
+ static void Register(ExtensionLoader &loader) {
+-	const TableFunction func("ST_Read_Meta", FunctionSignature().AddPositionalOnly("path", LogicalType::VARCHAR), Scan,
+-	                         Bind, InitGlobal);
++	FunctionSignature signature;
++	signature.AddPositionalOnly("path", LogicalType::VARCHAR).WithTypedKwargs("options", [&](TypedKwargs &options) {
++		options.Add("open_options", LogicalType::LIST(LogicalType::VARCHAR))
++		    .Add("allowed_drivers", LogicalType::LIST(LogicalType::VARCHAR))
++		    .Add("sibling_files", LogicalType::LIST(LogicalType::VARCHAR));
++	});
++	const TableFunction func("ST_Read_Meta", std::move(signature), Scan, Bind, InitGlobal);
+ 	loader.RegisterFunction(MultiFileReader::CreateFunctionSet(func));
+ 
+ 	InsertionOrderPreservingMap<string> tags;
+@@ -2286,5 +2378,9 @@ void RegisterGDALModule(ExtensionLoader &loader) {
+ 	gdal_copy::Register(loader);
+ 	gdal_list::Register(loader);
+ 	gdal_meta::Register(loader);
++	loader.RegisterFunction(ScalarFunction("spatial_core_gdal_read_contract", {}, LogicalType::INTEGER,
++	    [](DataChunk &args, ExpressionState &, Vector &result) {
++		    result.Reference(Value::INTEGER(1), count_t(args.size()));
++	    }));
+ }
+ } // namespace duckdb
+diff --git a/vcpkg_ports/gdal/portfile.cmake b/vcpkg_ports/gdal/portfile.cmake
+index d12ea55..2b60a00 100644
+--- a/vcpkg_ports/gdal/portfile.cmake
++++ b/vcpkg_ports/gdal/portfile.cmake
+@@ -12,6 +12,7 @@ vcpkg_from_github(
+         sqlite3.diff
+         target-is-valid.patch
+         duckdb_gdal_json.patch
++        spatial_core_flatgeobuf_null.patch
+ )
+ file(REMOVE "${SOURCE_PATH}/cmake/modules/packages/FindIconv.cmake")
+ file(REMOVE "${SOURCE_PATH}/cmake/modules/packages/FindZSTD.cmake")

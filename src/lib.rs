@@ -13,6 +13,8 @@
 pub mod config;
 pub mod control;
 pub mod dataset;
+#[cfg(feature = "duckdb")]
+pub mod duckdb;
 pub mod operation;
 pub mod postgis;
 pub mod raster;

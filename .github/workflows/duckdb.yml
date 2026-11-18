@@ -1,0 +1,94 @@
+name: DuckDB vector backend
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  duckdb:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux_amd64
+          - os: macos-15
+            platform: osx_arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      SPATIAL_CORE_DUCKDB_EXTENSION_DIR: ${{ runner.temp }}/duckdb-extensions
+      SPATIAL_CORE_DUCKDB_SPATIAL_PUBLIC_KEY: ${{ runner.temp }}/duckdb-extensions/spatial-public.pem
+      CMAKE_BUILD_PARALLEL_LEVEL: "2"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
+        with:
+          components: clippy, rustfmt
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libgdal-dev libclang-dev pkg-config cmake ninja-build autoconf automake libtool
+      - name: Install macOS build tools
+        if: runner.os == 'macOS'
+        run: brew install llvm pkg-config cmake ninja autoconf automake libtool
+      - name: Install macOS GDAL 3.12.2
+        if: runner.os == 'macOS'
+        uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3.2.1
+        with:
+          micromamba-version: 2.10.0-0
+          environment-name: gdal-ci
+          create-args: >-
+            --override-channels --channel conda-forge --strict-channel-priority
+            libgdal-core==3.12.2
+          init-shell: none
+          post-cleanup: all
+          micromamba-root-path: ${{ runner.temp }}/micromamba
+          micromamba-binary-path: ${{ runner.temp }}/micromamba-bin/micromamba
+      - name: Build and sign patched Spatial
+        run: |
+          umask 077
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$RUNNER_TEMP/spatial-private.pem"
+          bash scripts/native/build-duckdb-spatial.sh "$RUNNER_TEMP/spatial-build" \
+            "$SPATIAL_CORE_DUCKDB_EXTENSION_DIR" "$RUNNER_TEMP/spatial-private.pem"
+      - name: Provision official signed httpfs
+        env:
+          DUCKDB_PLATFORM: ${{ matrix.platform }}
+        run: |
+          mkdir -p "$SPATIAL_CORE_DUCKDB_EXTENSION_DIR"
+          curl --fail --silent --show-error --location --retry 2 --max-time 180 \
+            "https://extensions.duckdb.org/v2.0.0/$DUCKDB_PLATFORM/httpfs.duckdb_extension.gz" \
+            -o "$SPATIAL_CORE_DUCKDB_EXTENSION_DIR/httpfs.duckdb_extension.gz"
+          gzip -d "$SPATIAL_CORE_DUCKDB_EXTENSION_DIR/httpfs.duckdb_extension.gz"
+      - name: Linux feature checks
+        if: runner.os == 'Linux'
+        run: bash scripts/ci/test-duckdb.sh
+      - name: macOS feature checks
+        if: runner.os == 'macOS'
+        shell: micromamba-shell {0}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export GDAL_HOME="$CONDA_PREFIX"
+          export GDAL_INCLUDE_DIR="$GDAL_HOME/include"
+          export GDAL_LIB_DIR="$GDAL_HOME/lib"
+          export GDAL_DATA="$GDAL_HOME/share/gdal"
+          export PROJ_DATA="$GDAL_HOME/share/proj"
+          export PROJ_NETWORK=OFF
+          export PKG_CONFIG_PATH="$GDAL_HOME/lib/pkgconfig"
+          export LIBCLANG_PATH="$(brew --prefix llvm)/lib"
+          export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=-Wl,-rpath,$GDAL_LIB_DIR"
+          export RUSTDOCFLAGS="${RUSTDOCFLAGS:-} -C link-arg=-Wl,-rpath,$GDAL_LIB_DIR"
+          bash scripts/ci/check-gdal.sh "$GDAL_HOME" 3.12.2
+          bash scripts/ci/test-duckdb.sh

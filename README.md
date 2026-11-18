@@ -13,6 +13,7 @@
 - `postgis::raster`：InDB/OutDB、整幅/分块、重投影、栅格约束及数据库元数据。
 - `control`：协作式取消与输入错误分类。
 - `config::gdal`：显式 GDAL 选项及 worker 线程配置作用域。
+- 可选 `duckdb` feature：本地/S3/HTTP GeoParquet 与多格式矢量读取、参数化空间 SQL、Arrow 批次及 GeoParquet 输出；GDAL 读取使用修补并签名的 Spatial 扩展，见 [使用说明](docs/DUCKDB.md) 与 [集成设计](docs/DUCKDB_DESIGN.md)。
 算子注册/执行协议留在未来 server；完整 DAG、调度和业务编排留在 gis-workflow。底层转换函数不是业务算子目录。本库不包含租户/项目授权、业务资源 ID、Temporal worker 或 HTTP 服务。
 
 [GDAL 能力封装设计](docs/GDAL_API_DESIGN.md) 说明矢量转换基线；[栅格与矢量处理设计](docs/GDAL_PROCESSING_DESIGN.md) 说明本轮扩展的 API、文件组织和算法边界。旧 `to_geoparquet` / `to_pg_dump` 已移除，其隐式重投影、降维、修复及跳过失败行为改为调用方显式选择。
@@ -141,7 +142,7 @@ async fn example(pool: deadpool_postgres::Pool) -> anyhow::Result<()> {
 
 ## 构建与测试
 
-固定 Rust 1.98.1 / edition 2024，独立 Cargo.lock，依赖均为 crates.io 包，没有 MapSeek 内部 path/git 依赖。默认即包含 GDAL 和 PostGIS 适配，没有 feature 矩阵。
+固定 Rust 1.98.1 / edition 2024，独立 Cargo.lock，依赖均为 crates.io 包，没有 MapSeek 内部 path/git 依赖。默认包含 GDAL 和 PostGIS 适配；DuckDB 后端通过可选 `duckdb` feature 启用。
 
 原生依赖：GDAL 开发库及匹配的运行库、libclang（`gdal` 启用 bindgen）、C/C++ 编译工具及 pkg-config；GDAL 的 PROJ 数据必须与安装匹配。新栅格/矢量 Builder 要求构建与运行的 GDAL 都至少为 3.7，以检查显式关闭结果；带空格/逗号/引号的字段投影需 3.9+。不能据此假定兼容后续所有版本；macOS CI 固定 GDAL 3.12.2，已知 3.13.3 的 C API 变动会导致编译失败。隔离环境配置和额外驱动要求见 [测试说明](docs/TESTING.md)。GeoParquet 导出另需 GDAL Parquet driver。
 

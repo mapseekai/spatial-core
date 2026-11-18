@@ -12,6 +12,13 @@
 - deadpool：<https://github.com/deadpool-rs/deadpool>
 - Tokio：<https://github.com/tokio-rs/tokio>
 - wkb-raster：<https://crates.io/crates/wkb-raster>
+- 可选 DuckDB core / duckdb-rs（MIT）：<https://github.com/duckdb/duckdb>、<https://github.com/duckdb/duckdb-rs>
+- 可选 Arrow Rust（Apache-2.0）：<https://github.com/apache/arrow-rs>
+- 可选 Spatial / httpfs 扩展及其 native 依赖：<https://github.com/duckdb/duckdb-spatial>、<https://github.com/duckdb/duckdb-httpfs>
+
+启用 `duckdb` 后，Cargo 编译 bundled DuckDB core/Parquet/JSON；本仓库不 vendoring 扩展二进制。部署者显式预置签名 Spatial/httpfs，其中 GDAL、GEOS、PROJ 等依赖与系统 GDAL 可能不同，必须依据实际构件附带各自许可，不能只附 DuckDB 的 MIT 声明。以上链接不改变根 LICENSE。
+
+本次另包含基于 DuckDB Spatial `a3dbcd1781ec26c3a1be9bd622be05b376d6f47a` 的 GDAL 错误传播补丁，保留 [Spatial MIT 许可](../third_party/duckdb-spatial/LICENSE) 和 [固定版本、改动范围及构建说明](../third_party/duckdb-spatial/README.md)。GDAL 3.12.4 的 FlatGeobuf NULL 几何补丁基于 Copyright (c) 2018–2020 Björn Harrtell 的 MIT 文件；附带该固定版本的 [GDAL 许可声明](../third_party/duckdb-spatial/GDAL-LICENSE.txt)。签名脚本遵循 DuckDB 的扩展分段 SHA-256/RSA-2048 格式。构建产物不包含签名私钥；部署者还需保留 vcpkg 构建依赖的许可文件。
 
 MapSeek 原仓库的 MapLibre Native 声明属于其渲染服务；本次提取没有包含 MapLibre Native 或 maptile-core。
 

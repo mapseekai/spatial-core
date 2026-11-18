@@ -1,0 +1,19 @@
+--- a/ogr/ogrsf_frmts/flatgeobuf/ogrflatgeobuflayer.cpp
++++ b/ogr/ogrsf_frmts/flatgeobuf/ogrflatgeobuflayer.cpp
+@@ -1640,6 +1640,16 @@
+                 goto error;
+             }
+             poOGRGeometry->exportToWkb(wkbNDR, outPtr, wkbVariantIso);
++        }
++        else if (!m_poFeatureDefn->IsGeometryIgnored())
++        {
++            if (!FilterGeometry(nullptr))
++                goto end_of_loop;
++            if (!sHelper.SetNull(sHelper.m_mapOGRGeomFieldToArrowField[0], iFeat))
++            {
++                errorErrno = ENOMEM;
++                goto error;
++            }
+         }
+ 
+         abSetFields.clear();
