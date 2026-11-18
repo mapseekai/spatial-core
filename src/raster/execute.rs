@@ -156,6 +156,40 @@ pub(super) struct Prepared {
     source_open_options: bool,
 }
 impl Prepared {
+    pub fn materialize(
+        &mut self,
+        input: &Dataset,
+        progress: &mut ProgressCallbackState<'_>,
+    ) -> Result<()> {
+        let mut args = vec![
+            "-of".into(),
+            self.driver.as_ref().expect("typed output").short_name(),
+        ];
+        self.creation.append_args("-co", &mut args);
+        let mut options =
+            utility::Options::new(utility::Kind::Translate, &args).map_err(processing_error)?;
+        self.state = OutputState::MayHaveChanged;
+        let outcome = options.execute(std::slice::from_ref(input), &self.name, None, progress);
+        self.output = outcome.output;
+        check_progress(progress)?;
+        if outcome.usage_error {
+            return Err(Error::invalid("GDAL rejected materialization options"));
+        }
+        outcome.error.map_or(Ok(()), |e| Err(processing_error(e)))
+    }
+    pub fn temporary_path(&mut self, filename: &str) -> Result<PathBuf> {
+        if self.temporary.is_none() {
+            self.isolate_scratch()?;
+        }
+        Ok(self
+            .temporary
+            .as_ref()
+            .expect("scratch directory")
+            .1
+            .path()
+            .join(filename))
+    }
+
     fn open_inputs(
         &mut self,
         sources: impl IntoIterator<Item = Source>,

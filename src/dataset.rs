@@ -81,6 +81,10 @@ impl Source {
         !self.options.is_empty()
     }
 
+    pub(crate) fn open_option_value(&self, key: &str) -> Option<&str> {
+        self.options.get(key)
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         self.options.validate()?;
         for name in &self.drivers {
@@ -120,6 +124,10 @@ impl Source {
     pub(crate) fn open_kind(&self, kind: Kind) -> Result<Dataset> {
         open_kind(&self.name()?, &self.drivers, &self.options, false, kind)
             .map_err(|e| Error::native(Stage::OpenSource, e))
+    }
+    pub(crate) fn open_update(&self, kind: Kind) -> Result<Dataset> {
+        open_kind(&self.name()?, &self.drivers, &self.options, true, kind)
+            .map_err(|e| Error::native(Stage::OpenOutput, e))
     }
 }
 

@@ -18,6 +18,8 @@
 
 [GDAL 能力封装设计](docs/GDAL_API_DESIGN.md) 说明矢量转换基线；[栅格与矢量处理设计](docs/GDAL_PROCESSING_DESIGN.md) 说明本轮扩展的 API、文件组织和算法边界。旧 `to_geoparquet` / `to_pg_dump` 已移除，其隐式重投影、降维、修复及跳过失败行为改为调用方显式选择。
 
+[查询与分析设计](docs/GDAL_ANALYSIS_DESIGN.md) 说明已实现的 Info/PixelInfo、金字塔维护、Calculate/Reclassify、Overlay 和几何/覆盖检查、清理、简化；实测范围见 [验证记录](docs/GDAL_ANALYSIS_VALIDATION.md)。
+
 ## 本地使用
 
 源码仓库：[mapseekai/spatial-core](https://github.com/mapseekai/spatial-core)。尚未发布到 crates.io；使用与分发权限见 [LICENSE](LICENSE)。获授权的调用方克隆仓库后可以使用本地 path：
@@ -34,6 +36,9 @@ cargo run --locked --example raster_convert
 cargo run --locked --example vector_convert
 cargo run --locked --example raster_process
 cargo run --locked --example vector_process
+cargo run --locked --example inspect
+cargo run --locked --example raster_analysis
+cargo run --locked --example vector_analysis
 ```
 
 示例在临时目录生成微型 GeoTIFF，调用公开转换 API，核对输出像元和空间参考，并在结束时清理。同步 GDAL 处理应放在调用者的 blocking 线程；异步导入函数自行管理 blocking reader，但 PostgreSQL 连接池和运行时仍由调用方提供。
@@ -109,6 +114,42 @@ fn process() -> spatial_core::operation::Result<()> {
 
 具体 `geometry_type`（如 `MultiPolygon`）必须同时指定 `dimensions`，避免 Z/M 被原生类型转换静默丢弃；三种语义转换 `PromoteToMulti` / `ConvertToLinear` / `ConvertToCurve` 默认保留维度。完整参数边界、文件组织与兼容性说明见 [处理设计](docs/GDAL_PROCESSING_DESIGN.md)，实测范围见 [处理验证记录](docs/GDAL_PROCESSING_VALIDATION.md)。
 
+## 数据查询与分析
+
+```rust
+use spatial_core::{raster, vector};
+
+fn main() -> spatial_core::operation::Result<()> {
+    let info = raster::Info::new("image.tif")
+        .statistics(raster::StatisticsMode::Approximate)
+        .run()?;
+    println!("{:?}", info.value().size);
+
+    let _ = raster::Calculate::new("sum.tif")
+        .input("A", "a.tif")
+        .input("B", "b.tif")
+        .dialect(raster::ExpressionDialect::Builtin)
+        .expression("sum")
+        .run()?;
+
+    let parcels = vector::LayerSource::new("land.gpkg").layer("parcels");
+    let check = vector::CheckCoverage::new(parcels.clone()).run()?;
+    if check.value().is_valid() {
+        let _ = vector::SimplifyCoverage::new(parcels, "simplified.gpkg")
+            .tolerance(0.5)
+            .preserve_boundary(true)
+            .run()?;
+    }
+    Ok(())
+}
+```
+
+查询返回 `Outcome<T>`，`value()` 取类型化结果，`report()` 取诊断；写操作继续返回 `Report`。统计默认不计算，矢量计数/范围默认不强制扫描。Calculate 要求输入 CRS、尺寸和仿射网格一致；Reclassify 按所选波段和 Rust 区间分类。两者支持逐波段标量 NoData；独立 mask、alpha 或联合 `NODATA_VALUES` 元组须先归一化，否则在创建输出前报错。PixelInfo 保留 Int64/UInt64 原值；计算统计/直方图暂不接受这两种类型，避免浮点视图改变 NoData 判定。
+
+`BuildOverviews` / `ClearOverviews` / `RefreshOverviews` 会维护已有目标或 `.ovr`；默认 External，只支持明确验证的 GTiff/VRT 路径，失败可能留下修改。需要保护原件时先复制。Overlay 支持七种有方向的叠加，默认拒绝无效几何。保留双方属性时，默认用来源前缀避免同名冲突；显式清空参与侧的字段列表可只输出几何。覆盖检查、清理与简化针对 XY 面集合，距离采用源坐标单位。
+
+计算、重分类、范围刷新及覆盖算法需要 GDAL 3.12；Check/SimplifyCoverage 另需 GEOS 3.12，CleanCoverage 需 GEOS 3.14。muparser 是 GDAL 的可选构建能力，本地已验证缺失时返回 Unsupported，Builtin 可以使用。覆盖算法的要素/顶点预算不是原生内存硬限制。所有版本门槛、输出保护与示例见 [查询与分析设计](docs/GDAL_ANALYSIS_DESIGN.md)。
+
 ## PostGIS 导入
 
 连接池及 Tokio runtime 由应用提供。池大小为 1 也可使用；TLS connector 必须与创建池时一致。
@@ -144,7 +185,7 @@ async fn example(pool: deadpool_postgres::Pool) -> anyhow::Result<()> {
 
 固定 Rust 1.98.1 / edition 2024，独立 Cargo.lock，依赖均为 crates.io 包，没有 MapSeek 内部 path/git 依赖。默认包含 GDAL 和 PostGIS 适配；DuckDB 后端通过可选 `duckdb` feature 启用。
 
-原生依赖：GDAL 开发库及匹配的运行库、libclang（`gdal` 启用 bindgen）、C/C++ 编译工具及 pkg-config；GDAL 的 PROJ 数据必须与安装匹配。新栅格/矢量 Builder 要求构建与运行的 GDAL 都至少为 3.7，以检查显式关闭结果；带空格/逗号/引号的字段投影需 3.9+。不能据此假定兼容后续所有版本；macOS CI 固定 GDAL 3.12.2，已知 3.13.3 的 C API 变动会导致编译失败。隔离环境配置和额外驱动要求见 [测试说明](docs/TESTING.md)。GeoParquet 导出另需 GDAL Parquet driver。
+原生依赖：GDAL 开发库及匹配的运行库、libclang（`gdal` 启用 bindgen）、支持 C++17 的编译器及 pkg-config；GDAL 的 PROJ 数据必须与安装匹配。新栅格/矢量 Builder 要求构建与运行的 GDAL 都至少为 3.7，以检查显式关闭结果；带空格/逗号/引号的字段投影需 3.9+。不能据此假定兼容后续所有版本；macOS CI 固定 GDAL 3.12.2，已知 3.13.3 的 C API 变动会导致编译失败。隔离环境配置和额外驱动要求见 [测试说明](docs/TESTING.md)。Overlay 的原生适配器还要求 GDAL 头文件与运行库的主、次版本一致。GeoParquet 导出另需 GDAL Parquet driver。
 
 ```sh
 # macOS，先按 docs/TESTING.md 配置 GDAL 3.12.2 的隔离环境

@@ -42,6 +42,10 @@ tempfile = "3.27.0"
 tracing = "0.1.44"
 chrono = "0.4.45"
 
+[build-dependencies]
+cc = "1"
+pkg-config = "0.3"
+
 [dev-dependencies]
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "time", "net", "io-util"] }
 uuid = { version = "1.26.1", features = ["v4", "fast-rng"] }

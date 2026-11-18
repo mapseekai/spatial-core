@@ -10,4 +10,7 @@ cargo run --locked --example raster_convert
 cargo run --locked --example vector_convert
 cargo run --locked --example raster_process
 cargo run --locked --example vector_process
+cargo run --locked --example inspect
+cargo run --locked --example raster_analysis
+cargo run --locked --example vector_analysis
 git diff --check

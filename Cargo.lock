@@ -1543,6 +1543,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "cc",
  "chrono",
  "deadpool-postgres",
  "duckdb",
@@ -1550,6 +1551,7 @@ dependencies = [
  "gdal",
  "gdal-sys",
  "libc",
+ "pkg-config",
  "serde_json",
  "tempfile",
  "thiserror",

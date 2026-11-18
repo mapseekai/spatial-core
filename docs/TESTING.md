@@ -73,6 +73,30 @@ cargo test --locked --lib vector::translate::tests::optional_geoparquet_roundtri
 
 关闭错误组合通过最小私有 `record_close` 故障接缝验证，不模拟整个 GDAL。它证明主错误及两个关闭错误不会互相覆盖；另用真实 NativeBuildVrt 向目录路径写入，覆盖延迟写入时 GDALClose 返回成功但 CPL 报失败的路径，核对 `Close / CloseOutput`、诊断与清理错误。该回归分别使用空 Control 和仅取消 token；不等于对所有驱动或真实磁盘耗尽做了故障注入。
 
+## GDAL 查询与分析回归
+
+默认 `check.sh` 包含 `inspect`、`raster_analysis`、`vector_analysis` 三个新示例，合计七个 GDAL 示例。私有测试覆盖统计/PAM 只读、派生 VRT、旋转坐标与 UInt64、概览内外置和范围刷新、同网格计算、NoData 区间拆分与重分类、七种叠加、字段子类型、几何有效性、覆盖清理/简化、输入预算和取消/panic。
+
+```sh
+cargo run --locked --example inspect -- raster /path/to/image.tif
+cargo run --locked --example inspect -- vector /path/to/data.gpkg
+cargo run --locked --example raster_analysis -- /path/to/image.tif
+cargo run --locked --example vector_analysis -- /path/to/polygons.gpkg parcels
+```
+
+六项修复的回归逐项核对：多来源 VRT 的实际分布与源文件不变；奇数尺寸的概览数、尺寸和像元；叠加空字段投影与非空属性值；关闭重开后的实际几何类型及仅接触结果；重分类只校验所选波段；全无效要素和完成回调中的取消、错误阶段和输出状态。入口及复验范围见[分析验证记录](GDAL_ANALYSIS_VALIDATION.md)。四轮复审另外锁定了两个边界，可单独复跑：
+
+```sh
+cargo test --locked --lib regional_refresh_preserves_alpha_masks_and_palette_colors
+cargo test --locked --lib raster_algebra_rejects_dataset_nodata_tuples_before_writing
+```
+
+前者逐像元对照 GDAL 整层重采样，另查窗口外和未选层；后者分别验证 Calculate 和 Reclassify 拒绝联合 NoData 元组、没有创建输出，且标量 NoData 仍可计算。
+
+`raster_analysis` 在临时目录复制第一波段最多 256×256 窗口后维护概览、计算和重分类，不改原图。`vector_analysis` 先报告全部几何问题；发现无效几何就结束检查，不能将退出码 0 当作已完成后续清理。几何有效时执行叠加和覆盖检查/清理/简化，再读回验证。输入需为面数据；点线使用 `inspect`，其裁剪功能由私有 fixture 回归。
+
+当前高版本功能实测依赖 GDAL 3.12.2 / GEOS 3.14.1；低版本示例明确提示未执行的能力。muparser 缺失分支已验证，不能计为 muparser 正向测试。数据库、DuckDB 可选扩展及旧 GDAL 环境不由这些示例覆盖。具体数据、结果、耗时与原文件哈希检查见 [分析验证记录](GDAL_ANALYSIS_VALIDATION.md)。
+
 ## 真实数据库回归
 
 只使用新建的、可丢弃的数据库。测试用户需创建 schema、表、索引与序列的权限；用数据库管理者提前创建 `postgis` 和 `postgis_raster` 扩展。测试会创建随机名称的对象，并主动测试替表、取消和失败回滚，不能指向业务库。

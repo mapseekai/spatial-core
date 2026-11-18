@@ -297,3 +297,38 @@ impl Error {
 
 /// Result of a synchronous GDAL operation.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// An owned query result and its bounded execution diagnostics.
+#[derive(Debug)]
+#[must_use]
+pub struct Outcome<T> {
+    value: T,
+    report: Report,
+}
+impl<T> Outcome<T> {
+    pub(crate) fn new(value: T, report: Report) -> Self {
+        Self { value, report }
+    }
+    /// Inspect the value after every native handle has been closed.
+    pub fn value(&self) -> &T {
+        &self.value
+    }
+    /// Inspect retained warnings and native diagnostics.
+    pub fn report(&self) -> &Report {
+        &self.report
+    }
+    /// Take ownership of the value and diagnostics.
+    pub fn into_parts(self) -> (T, Report) {
+        (self.value, self.report)
+    }
+}
+
+/// Whether inspection may scan the complete source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScanMode {
+    /// Use a fast driver result; report unavailable rather than forcing a scan.
+    #[default]
+    Fast,
+    /// Allow a complete scan to compute the result.
+    Exact,
+}
