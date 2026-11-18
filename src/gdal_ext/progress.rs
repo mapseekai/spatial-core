@@ -144,25 +144,26 @@ mod tests {
     #[test]
     fn fractions_and_messages_are_normalized_and_null_state_is_safe() {
         let mut observed = Vec::new();
-        let mut callback = |progress: Progress| {
-            observed.push(progress);
-            true
-        };
-        let mut state = ProgressCallbackState::new(&mut callback);
-        for fraction in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1.5, -0.5] {
-            // SAFETY: state and static message remain valid through each direct callback.
-            assert_eq!(
-                // SAFETY: state and the static message outlive this call.
-                unsafe { trampoline(fraction, c"hello".as_ptr(), state.user_data()) },
-                1
-            );
+        {
+            let mut callback = |progress: Progress| {
+                observed.push(progress);
+                true
+            };
+            let mut state = ProgressCallbackState::new(&mut callback);
+            for fraction in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1.5, -0.5] {
+                // SAFETY: state and static message remain valid through each direct callback.
+                assert_eq!(
+                    // SAFETY: state and the static message outlive this call.
+                    unsafe { trampoline(fraction, c"hello".as_ptr(), state.user_data()) },
+                    1
+                );
+            }
+            // SAFETY: null message and null user data are explicitly supported.
+            unsafe {
+                assert_eq!(trampoline(0.5, std::ptr::null(), state.user_data()), 1);
+                assert_eq!(trampoline(0.5, std::ptr::null(), std::ptr::null_mut()), 1);
+            }
         }
-        // SAFETY: null message and null user data are explicitly supported.
-        unsafe {
-            assert_eq!(trampoline(0.5, std::ptr::null(), state.user_data()), 1);
-            assert_eq!(trampoline(0.5, std::ptr::null(), std::ptr::null_mut()), 1);
-        }
-        drop(state);
         assert_eq!(
             observed.iter().map(|p| p.fraction).collect::<Vec<_>>(),
             [0.0, 1.0, 0.0, 1.0, 0.0, 0.5]
@@ -174,36 +175,37 @@ mod tests {
     #[test]
     fn callbacks_are_serialized_across_native_threads() {
         let mut calls = 0;
-        let mut callback = |progress: Progress| {
-            assert!((0.0..=1.0).contains(&progress.fraction));
-            calls += 1;
-            true
-        };
-        let state = ProgressCallbackState::new(&mut callback);
-        std::thread::scope(|scope| {
-            for _ in 0..4 {
-                scope.spawn(|| {
-                    for _ in 0..50 {
-                        // SAFETY: the shared state outlives all scoped workers; mutex serializes it.
-                        assert_eq!(
-                            // SAFETY: scoped workers share a live, mutex-protected state.
-                            unsafe {
-                                trampoline(
-                                    f64::INFINITY,
-                                    std::ptr::null(),
-                                    (&state as *const ProgressCallbackState<'_>)
-                                        .cast_mut()
-                                        .cast(),
-                                )
-                            },
-                            1
-                        );
-                    }
-                });
-            }
-        });
-        assert!(state.interruption().is_none());
-        drop(state);
+        {
+            let mut callback = |progress: Progress| {
+                assert!((0.0..=1.0).contains(&progress.fraction));
+                calls += 1;
+                true
+            };
+            let state = ProgressCallbackState::new(&mut callback);
+            std::thread::scope(|scope| {
+                for _ in 0..4 {
+                    scope.spawn(|| {
+                        for _ in 0..50 {
+                            // SAFETY: the shared state outlives all scoped workers; mutex serializes it.
+                            assert_eq!(
+                                // SAFETY: scoped workers share a live, mutex-protected state.
+                                unsafe {
+                                    trampoline(
+                                        f64::INFINITY,
+                                        std::ptr::null(),
+                                        (&state as *const ProgressCallbackState<'_>)
+                                            .cast_mut()
+                                            .cast(),
+                                    )
+                                },
+                                1
+                            );
+                        }
+                    });
+                }
+            });
+            assert!(state.interruption().is_none());
+        }
         assert_eq!(calls, 200);
     }
 
@@ -211,30 +213,31 @@ mod tests {
     fn cancellation_and_panic_are_sticky_and_distinct() {
         for panics in [false, true] {
             let mut calls = 0;
-            let mut callback = |_: Progress| {
-                calls += 1;
-                assert!(!panics, "callback panic");
-                false
-            };
-            let mut state = ProgressCallbackState::new(&mut callback);
-            for _ in 0..2 {
-                // SAFETY: this synchronous test keeps state and callback alive.
+            {
+                let mut callback = |_: Progress| {
+                    calls += 1;
+                    assert!(!panics, "callback panic");
+                    false
+                };
+                let mut state = ProgressCallbackState::new(&mut callback);
+                for _ in 0..2 {
+                    // SAFETY: this synchronous test keeps state and callback alive.
+                    assert_eq!(
+                        // SAFETY: state and callback remain alive for this invocation.
+                        unsafe { trampoline(1.0, std::ptr::null(), state.user_data()) },
+                        0
+                    );
+                }
                 assert_eq!(
-                    // SAFETY: state and callback remain alive for this invocation.
-                    unsafe { trampoline(1.0, std::ptr::null(), state.user_data()) },
-                    0
+                    state.interruption(),
+                    Some(if panics {
+                        ErrorKind::CallbackPanicked
+                    } else {
+                        ErrorKind::Cancelled
+                    })
                 );
+                assert!(state.check().is_err());
             }
-            assert_eq!(
-                state.interruption(),
-                Some(if panics {
-                    ErrorKind::CallbackPanicked
-                } else {
-                    ErrorKind::Cancelled
-                })
-            );
-            assert!(state.check().is_err());
-            drop(state);
             assert_eq!(calls, 1);
         }
     }

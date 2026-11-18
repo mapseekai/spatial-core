@@ -25,8 +25,6 @@ jobs:
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
-      SPATIAL_CORE_DUCKDB_EXTENSION_DIR: ${{ runner.temp }}/duckdb-extensions
-      SPATIAL_CORE_DUCKDB_SPATIAL_PUBLIC_KEY: ${{ runner.temp }}/duckdb-extensions/spatial-public.pem
       CMAKE_BUILD_PARALLEL_LEVEL: "2"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -56,6 +54,10 @@ jobs:
           post-cleanup: all
           micromamba-root-path: ${{ runner.temp }}/micromamba
           micromamba-binary-path: ${{ runner.temp }}/micromamba-bin/micromamba
+      - name: Configure extension paths
+        run: |
+          echo "SPATIAL_CORE_DUCKDB_EXTENSION_DIR=$RUNNER_TEMP/duckdb-extensions" >> "$GITHUB_ENV"
+          echo "SPATIAL_CORE_DUCKDB_SPATIAL_PUBLIC_KEY=$RUNNER_TEMP/duckdb-extensions/spatial-public.pem" >> "$GITHUB_ENV"
       - name: Build and sign patched Spatial
         run: |
           umask 077
