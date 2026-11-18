@@ -638,7 +638,7 @@ mod tests {
 
     #[test]
     fn projected_schema_and_values_survive_the_native_overlay() -> anyhow::Result<()> {
-        use OverlayOperation::{Clip, Intersection, Update};
+        use OverlayOperation::{Clip, Erase, Identity, Intersection, SymDifference, Union, Update};
 
         let dir = tempfile::tempdir()?;
         let input = dir.path().join("input.geojson");
@@ -647,6 +647,10 @@ mod tests {
         attributed(&method, OVERLAP, 84)?;
         for (i, (op, left, right, names, mut expected)) in [
             (Intersection, false, false, vec![], vec![vec![]]),
+            (Union, false, false, vec![], vec![vec![]; 3]),
+            (SymDifference, false, false, vec![], vec![vec![]; 2]),
+            (Identity, false, false, vec![], vec![vec![]; 2]),
+            (Erase, false, false, vec![], vec![vec![]]),
             (
                 Intersection,
                 true,
@@ -685,7 +689,7 @@ mod tests {
             let mut op_builder = Overlay::new(&input, &method, &output)
                 .operation(op)
                 .input_fields(left.then_some("keep"));
-            if op == Intersection {
+            if matches!(op, Intersection | Union | SymDifference | Identity) {
                 op_builder = op_builder.method_fields(right.then_some("keep"));
             }
             let _ = op_builder.run()?;

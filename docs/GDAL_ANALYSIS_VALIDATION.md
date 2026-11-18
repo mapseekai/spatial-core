@@ -105,7 +105,8 @@ cargo run --locked --example inspect -- vector "/Users/zhang/Desktop/测试数�
 
 ## 能力边界与未执行项
 
-- 基础接口保持 GDAL 3.7 兼容目标。上述四轮复审后的 [Ubuntu CI](https://github.com/mapseekai/spatial-core/actions/runs/44316958002) 揭示旧版本分支的 `Result` 缺少类型标注，导致 crate 无法编译。使用 3.7.3 头文件在本机复现了同一错误，修正后所有 target 均通过 Clippy，并增加了旧版构建专用的 `Unsupported / Prepare / NotModified` 回归。3.7.3 的独立运行库未在本机测试；原生 C++ 适配器需要与头文件匹配的运行库。
+- 四轮复审后的 [Ubuntu 编译记录](https://github.com/mapseekai/spatial-core/actions/runs/44316958002)和 [GDAL 3.8.4 回归记录](https://github.com/mapseekai/spatial-core/actions/runs/44319749571)揭示三项旧版本差异：算法回退分支无法推断 `Result` 的类型；旧版 VRT 的 `sum` 要求至少两个来源；叠加空属性时旧版 OGR 会尝试向目标层补列。只有第二项是测试输入不适用于旧版，统计实现未改。补丁修正了回退类型和叠加输出适配器，并使用各版本都支持的双来源 VRT 保留数值断言。
+- 本机从源码构建并实际加载 GDAL 3.7.3，独立复现上述问题后，算法回退、统计与叠加的 18 项回归全部通过，包括 `Unsupported / Prepare / NotModified`、派生像元最小/最大值及七种零业务字段叠加的落盘读回。此构建使用匹配的原生头文件、运行库及 GeoPackage、FlatGeobuf 驱动，并非所有驱动的全量测试。
 - 四轮复审与桌面数据实测均在 macOS 上完成。远端 Linux/macOS 的结果按提交查看 [Spatial core 工作流](https://github.com/mapseekai/spatial-core/actions/workflows/ci.yml)，未验证 Windows。DuckDB 签名扩展需要独立门禁。
 - muparser 正向计算、所有重采样/合并策略组合、所有驱动、断电/磁盘耗尽、生产级并发与超大覆盖集未验证。
 - Int64/UInt64 元数据和 PixelInfo 支持精确值；计算统计/直方图的浮点派生视图可能改变大整数的 NoData 归属，当前显式返回 Unsupported。栅格代数也拒绝宽整数、独立 mask/alpha 及跨波段的联合 NoData 元组，需要调用方明确转换。

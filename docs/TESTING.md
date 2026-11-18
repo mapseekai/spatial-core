@@ -95,7 +95,9 @@ cargo test --locked --lib raster_algebra_rejects_dataset_nodata_tuples_before_wr
 
 `raster_analysis` 在临时目录复制第一波段最多 256×256 窗口后维护概览、计算和重分类，不改原图。`vector_analysis` 先报告全部几何问题；发现无效几何就结束检查，不能将退出码 0 当作已完成后续清理。几何有效时执行叠加和覆盖检查/清理/简化，再读回验证。输入需为面数据；点线使用 `inspect`，其裁剪功能由私有 fixture 回归。
 
-当前高版本功能实测依赖 GDAL 3.12.2 / GEOS 3.14.1；低版本示例明确提示未执行的能力。muparser 缺失分支已验证，不能计为 muparser 正向测试。数据库、DuckDB 可选扩展及旧 GDAL 环境不由这些示例覆盖。具体数据、结果、耗时与原文件哈希检查见 [分析验证记录](GDAL_ANALYSIS_VALIDATION.md)。
+在旧版与新版 GDAL 的独立环境中都可以运行 `cargo test --locked --lib -- raster::info::tests vector::overlay::tests gdal_ext::algorithm::tests`。使用同一安装中的头文件和动态库；仅设置 `GDAL_VERSION` 不能代替旧版本运行时。该组回归会重开七种空属性叠加结果，读回派生 VRT 的像元统计；低于 3.12 的构建还会核对原生算法在准备阶段返回 `Unsupported`。
+
+当前高版本功能实测依赖 GDAL 3.12.2 / GEOS 3.14.1；低版本示例明确提示未执行的能力。muparser 缺失分支已验证，不能计为 muparser 正向测试。数据库和 DuckDB 可选扩展不由这些示例覆盖。具体数据、结果、耗时与原文件哈希检查见 [分析验证记录](GDAL_ANALYSIS_VALIDATION.md)。
 
 ## 真实数据库回归
 

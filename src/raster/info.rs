@@ -747,19 +747,21 @@ mod tests {
         let source = dir.path().join("pixels.tif");
         super::super::test_support::fixture(&source, 2, 1, &[1u8, 2])?;
         let path = dir.path().join("derived.vrt");
+        // Older GDAL releases require two sources for the sum pixel function.
+        let input = format!(
+            r#"<SimpleSource><SourceFilename relativeToVRT="0">{}</SourceFilename><SourceBand>1</SourceBand></SimpleSource>"#,
+            source.display()
+        );
         std::fs::write(
             &path,
             format!(
-                r#"<VRTDataset rasterXSize="2" rasterYSize="1"><VRTRasterBand dataType="Float64" band="1" subClass="VRTDerivedRasterBand"><PixelFunctionType>sum</PixelFunctionType><PixelFunctionArguments k="10"/><SimpleSource><SourceFilename relativeToVRT="0">{}</SourceFilename><SourceBand>1</SourceBand></SimpleSource></VRTRasterBand></VRTDataset>"#,
-                source.display()
+                r#"<VRTDataset rasterXSize="2" rasterYSize="1"><VRTRasterBand dataType="Float64" band="1" subClass="VRTDerivedRasterBand"><PixelFunctionType>sum</PixelFunctionType><PixelFunctionArguments k="10"/>{input}{input}</VRTRasterBand></VRTDataset>"#
             ),
         )?;
         let before = std::fs::read(&source)?;
         let result = Info::new(&path).statistics(StatisticsMode::Exact).run()?;
-        assert_eq!(
-            result.value().bands[0].statistics.as_ref().unwrap().minimum,
-            11.
-        );
+        let stats = result.value().bands[0].statistics.as_ref().unwrap();
+        assert_eq!((stats.minimum, stats.maximum), (12., 14.));
         for panic in [false, true] {
             let mut callback = |_: &crate::operation::Progress| {
                 assert!(!panic, "test callback panic");

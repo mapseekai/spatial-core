@@ -5,6 +5,20 @@
 #include <vector>
 
 namespace {
+#if GDAL_VERSION_NUM < GDAL_COMPUTE_VERSION(3, 12, 0)
+// Older OGR treats an empty definition as a request to copy every source field.
+class GeometryOnlyDefn final : public OGRFeatureDefn {
+  public:
+    explicit GeometryOnlyDefn(const OGRFeatureDefn &output) : OGRFeatureDefn(output.GetName()) {
+        SetGeomType(wkbNone);
+        AddGeomFieldDefn(output.GetGeomFieldDefn(0));
+        OGRFieldDefn unused("", OFTInteger);
+        AddFieldDefn(&unused);
+    }
+    int GetFieldIndex(const char *) const override { return -1; }
+};
+#endif
+
 // OGR layer algebra pushes features into a layer; the C API has no feature sink callback.
 class OverlaySink final : public OGRLayer {
     OGRLayer &output_;
@@ -15,19 +29,19 @@ class OverlaySink final : public OGRLayer {
     struct Release {
         void operator()(OGRFeatureDefn *schema) const { schema->Release(); }
     };
-    std::unique_ptr<OGRFeatureDefn, Release> aliases_;
+    std::unique_ptr<OGRFeatureDefn, Release> native_schema_;
     std::vector<int> field_map_;
 
     OGRFeatureDefn *definition() const {
-        return aliases_ ? aliases_.get() : output_.GetLayerDefn();
+        return native_schema_ ? native_schema_.get() : output_.GetLayerDefn();
     }
     OGRErr write(OGRFeature *feature) {
         OGRErr status;
-        if (aliases_) {
-            OGRFeature renamed(output_.GetLayerDefn());
-            status = renamed.SetFrom(feature, field_map_.data(), FALSE);
+        if (native_schema_) {
+            OGRFeature projected(output_.GetLayerDefn());
+            status = projected.SetFrom(feature, field_map_.data(), FALSE);
             if (status == OGRERR_NONE)
-                status = output_.CreateFeature(&renamed);
+                status = output_.CreateFeature(&projected);
         } else {
             status = output_.CreateFeature(feature);
         }
@@ -72,13 +86,21 @@ class OverlaySink final : public OGRLayer {
                                                     : type == wkbMultiLineString ? 1
                                                                                  : 2),
           written_(written) {
+#if GDAL_VERSION_NUM < GDAL_COMPUTE_VERSION(3, 12, 0)
+        if (output.GetLayerDefn()->GetFieldCount() == 0) {
+            native_schema_.reset(new GeometryOnlyDefn(*output.GetLayerDefn()));
+            native_schema_->Reference();
+            field_map_.push_back(-1);
+            return;
+        }
+#endif
         if (aliases && *aliases) {
-            aliases_.reset(output.GetLayerDefn()->Clone());
-            if (!aliases_)
+            native_schema_.reset(output.GetLayerDefn()->Clone());
+            if (!native_schema_)
                 throw std::bad_alloc();
-            aliases_->Reference();
-            for (int i = 0; i < aliases_->GetFieldCount(); ++i) {
-                aliases_->GetFieldDefn(i)->SetName(aliases[i]);
+            native_schema_->Reference();
+            for (int i = 0; i < native_schema_->GetFieldCount(); ++i) {
+                native_schema_->GetFieldDefn(i)->SetName(aliases[i]);
                 field_map_.push_back(i);
             }
         }
