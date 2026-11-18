@@ -66,6 +66,7 @@ spatial_source=$(cd "$build/spatial" && pwd -P)
 vcpkg_source=$(cd "$build/vcpkg" && pwd -P)
 export VCPKG_DISABLE_METRICS=1 VCPKG_BINARY_SOURCES=clear CCACHE_DISABLE=1
 export VCPKG_DOWNLOADS="$vcpkg_source/downloads"
+mkdir -p "$VCPKG_DOWNLOADS"
 export VCPKG_MAX_CONCURRENCY="${CMAKE_BUILD_PARALLEL_LEVEL:-2}"
 if [ ! -x "$vcpkg_source/vcpkg" ]; then
   bash "$vcpkg_source/bootstrap-vcpkg.sh" -disableMetrics
