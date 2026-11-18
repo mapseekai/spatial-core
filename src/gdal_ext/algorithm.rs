@@ -205,7 +205,7 @@ impl<'a> Algorithm<'a> {
             check_progress(progress).and(result)
         };
         #[cfg(not(gdal_3_12))]
-        let result = {
+        let result: Result<()> = {
             let _ = progress;
             Err(Error::unsupported("GDAL algorithm API is unavailable"))
         };
@@ -370,12 +370,26 @@ fn status(stage: crate::operation::Stage, call: impl FnOnce() -> bool) -> Result
     }
 }
 
-#[cfg(all(test, gdal_3_12))]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use gdal::{DriverManager, raster::Buffer};
+
+    #[cfg(not(gdal_3_12))]
+    #[test]
+    fn older_gdal_rejects_algorithms_before_execution() {
+        use crate::operation::{ErrorKind, OutputState, Stage};
+
+        assert!(matches!(Algorithm::new(&["raster", "calc"]), Err(error)
+            if error.kind() == ErrorKind::Unsupported
+                && error.stage() == Stage::Prepare
+                && error.output_state() == OutputState::NotModified));
+    }
+
+    #[cfg(gdal_3_12)]
     #[test]
     fn bound_dataset_survives_algorithm_finalization() -> anyhow::Result<()> {
+        use gdal::{DriverManager, raster::Buffer};
+
         let mut input = DriverManager::get_driver_by_name("MEM")?
             .create_with_band_type::<u8, _>("", 2, 1, 1)?;
         input.set_geo_transform(&[0., 1., 0., 1., 0., -1.])?;

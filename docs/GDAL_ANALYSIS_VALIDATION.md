@@ -1,6 +1,6 @@
 # GDAL 查询与分析验证记录
 
-日期：2026-11-18。对应 [实现设计](GDAL_ANALYSIS_DESIGN.md)。本记录只代表本地工作区，不代表远端 CI、发布或生产验证。
+日期：2026-11-18。对应 [实现设计](GDAL_ANALYSIS_DESIGN.md)。除单独链接的 GitHub Actions 记录外，以下结果均来自本地；未作发布或生产验证。
 
 ## 环境与范围
 
@@ -105,8 +105,8 @@ cargo run --locked --example inspect -- vector "/Users/zhang/Desktop/测试数�
 
 ## 能力边界与未执行项
 
-- 基础接口保持 GDAL 3.7 兼容目标；没有在独立 3.7 环境运行。新算法 C 符号按构建版本隔离；编译使用 3.12 的二进制仍需相容运行库。
-- 未执行 Linux、Windows 或远端 CI；数据库实测和独立复审与本地默认门禁分别记录。DuckDB 的签名扩展不由 GDAL 或 PostGIS 的检查替代。
+- 基础接口保持 GDAL 3.7 兼容目标。上述四轮复审后的 [Ubuntu CI](https://github.com/mapseekai/spatial-core/actions/runs/44316958002) 揭示旧版本分支的 `Result` 缺少类型标注，导致 crate 无法编译。使用 3.7.3 头文件在本机复现了同一错误，修正后所有 target 均通过 Clippy，并增加了旧版构建专用的 `Unsupported / Prepare / NotModified` 回归。3.7.3 的独立运行库未在本机测试；原生 C++ 适配器需要与头文件匹配的运行库。
+- 四轮复审与桌面数据实测均在 macOS 上完成。远端 Linux/macOS 的结果按提交查看 [Spatial core 工作流](https://github.com/mapseekai/spatial-core/actions/workflows/ci.yml)，未验证 Windows。DuckDB 签名扩展需要独立门禁。
 - muparser 正向计算、所有重采样/合并策略组合、所有驱动、断电/磁盘耗尽、生产级并发与超大覆盖集未验证。
 - Int64/UInt64 元数据和 PixelInfo 支持精确值；计算统计/直方图的浮点派生视图可能改变大整数的 NoData 归属，当前显式返回 Unsupported。栅格代数也拒绝宽整数、独立 mask/alpha 及跨波段的联合 NoData 元组，需要调用方明确转换。
 - 区域概览刷新只支持非旋转仿射；维护只支持明确的 GTiff/VRT 存储，COG 内改、内部/外部混合以及局部波段集合拒绝。
