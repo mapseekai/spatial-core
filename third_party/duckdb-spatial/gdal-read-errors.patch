@@ -1,5 +1,5 @@
 diff --git a/src/spatial/modules/gdal/gdal_module.cpp b/src/spatial/modules/gdal/gdal_module.cpp
-index 8c19075..d268c50 100644
+index 8c19075e101ec636259ea57d801884c2073ae293..d268c50be680b8bbe3d70ed85342efb7c132d011 100644
 --- a/src/spatial/modules/gdal/gdal_module.cpp
 +++ b/src/spatial/modules/gdal/gdal_module.cpp
 @@ -12,6 +12,7 @@
@@ -403,7 +403,7 @@ index 8c19075..d268c50 100644
  }
  } // namespace duckdb
 diff --git a/vcpkg_ports/gdal/portfile.cmake b/vcpkg_ports/gdal/portfile.cmake
-index d12ea55..2b60a00 100644
+index d12ea55845768553bc1979ad15df903d8cdd79de..2b60a00219b84f8d0e1f63586ef82fcf0d9c5547 100644
 --- a/vcpkg_ports/gdal/portfile.cmake
 +++ b/vcpkg_ports/gdal/portfile.cmake
 @@ -12,6 +12,7 @@ vcpkg_from_github(

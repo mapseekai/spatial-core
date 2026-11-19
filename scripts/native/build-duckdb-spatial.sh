@@ -50,7 +50,7 @@ if ! git -C "$build/spatial/duckdb" apply --reverse --check "$allocator_patch" 2
 fi
 git -C "$build/spatial/duckdb" diff --cached --quiet
 test -z "$(git -C "$build/spatial/duckdb" ls-files --others --exclude-standard)"
-cmp <(git -C "$build/spatial/duckdb" diff --no-ext-diff) "$allocator_patch"
+cmp <(git -C "$build/spatial/duckdb" diff --no-ext-diff --full-index) "$allocator_patch"
 patch="$repo/third_party/duckdb-spatial/gdal-read-errors.patch"
 if ! git -C "$build/spatial" apply --reverse --check "$patch" 2>/dev/null; then
   git -C "$build/spatial" apply --check "$patch"
@@ -59,7 +59,7 @@ fi
 # Only the pinned core gitlink and this exact patch may differ from upstream.
 git -C "$build/spatial" diff --quiet -- . ':(exclude)duckdb' ':(exclude)src/spatial/modules/gdal/gdal_module.cpp' ':(exclude)vcpkg_ports/gdal/portfile.cmake'
 git -C "$build/spatial" diff --cached --quiet
-cmp <(git -C "$build/spatial" diff --no-ext-diff -- src/spatial/modules/gdal/gdal_module.cpp vcpkg_ports/gdal/portfile.cmake) "$patch"
+cmp <(git -C "$build/spatial" diff --no-ext-diff --full-index -- src/spatial/modules/gdal/gdal_module.cpp vcpkg_ports/gdal/portfile.cmake) "$patch"
 gdal_patch="$repo/third_party/duckdb-spatial/gdal-flatgeobuf-null.patch"
 gdal_overlay="$build/spatial/vcpkg_ports/gdal/spatial_core_flatgeobuf_null.patch"
 if [ -e "$gdal_overlay" ]; then

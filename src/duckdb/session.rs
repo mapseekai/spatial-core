@@ -478,7 +478,10 @@ mod tests {
         // SAFETY: This connection initialized the linked core's allocator.
         let debug_allocator = unsafe { spatial_core_duckdb_debug_allocator() };
         if std::env::var("SPATIAL_CORE_DUCKDB_EXPECT_DEBUG").as_deref() == Ok("1") {
-            assert!(debug_allocator, "CI must exercise the native Debug allocator");
+            assert!(
+                debug_allocator,
+                "CI must exercise the native Debug allocator"
+            );
         }
         for contract in [None, Some(0), Some(2), Some(1)] {
             if let Some(version) = contract {
