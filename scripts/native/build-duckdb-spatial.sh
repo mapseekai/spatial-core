@@ -43,6 +43,14 @@ checkout https://github.com/duckdb/duckdb-spatial.git "$build/spatial" "$spatial
 git -C "$build/spatial" submodule update --init --depth 1 extension-ci-tools
 checkout https://github.com/duckdb/duckdb.git "$build/spatial/duckdb" "$duckdb_revision"
 checkout https://github.com/microsoft/vcpkg.git "$build/vcpkg" "$vcpkg_revision"
+allocator_patch="$repo/third_party/duckdb-spatial/duckdb-allocator-debug-accounting.patch"
+if ! git -C "$build/spatial/duckdb" apply --reverse --check "$allocator_patch" 2>/dev/null; then
+  git -C "$build/spatial/duckdb" apply --check "$allocator_patch"
+  git -C "$build/spatial/duckdb" apply "$allocator_patch"
+fi
+git -C "$build/spatial/duckdb" diff --cached --quiet
+test -z "$(git -C "$build/spatial/duckdb" ls-files --others --exclude-standard)"
+cmp <(git -C "$build/spatial/duckdb" diff --no-ext-diff) "$allocator_patch"
 patch="$repo/third_party/duckdb-spatial/gdal-read-errors.patch"
 if ! git -C "$build/spatial" apply --reverse --check "$patch" 2>/dev/null; then
   git -C "$build/spatial" apply --check "$patch"
@@ -59,7 +67,7 @@ if [ -e "$gdal_overlay" ]; then
 else
   cp "$gdal_patch" "$gdal_overlay"
 fi
-for source in "$build/spatial/duckdb" "$build/spatial/extension-ci-tools" "$build/vcpkg"; do
+for source in "$build/spatial/extension-ci-tools" "$build/vcpkg"; do
   test -z "$(git -C "$source" status --porcelain)" || { echo "Dirty build dependency: $source" >&2; exit 1; }
 done
 spatial_source=$(cd "$build/spatial" && pwd -P)
@@ -84,16 +92,17 @@ python3 "$repo/scripts/native/sign-duckdb-spatial.py" \
   "$spatial_source/build/release/extension/spatial/spatial.duckdb_extension" \
   "$output/v2.0.0/$platform/spatial.duckdb_extension" "$private_key"
 openssl pkey -in "$private_key" -pubout -out "$output/spatial-public.pem"
-python3 - "$output" "$patch" "$gdal_patch" "$spatial_revision" "$duckdb_revision" "$vcpkg_revision" "$platform" <<'PY'
+python3 - "$output" "$patch" "$gdal_patch" "$allocator_patch" "$spatial_revision" "$duckdb_revision" "$vcpkg_revision" "$platform" <<'PY'
 import hashlib, json, pathlib, sys
-output, patch, gdal_patch = map(pathlib.Path, sys.argv[1:4])
-spatial, duckdb, vcpkg, platform = sys.argv[4:]
+output, patch, gdal_patch, allocator_patch = map(pathlib.Path, sys.argv[1:5])
+spatial, duckdb, vcpkg, platform = sys.argv[5:]
 binary = output / 'v2.0.0' / platform / 'spatial.duckdb_extension'
 sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
 (output / 'spatial-build.json').write_text(json.dumps(dict(
     spatial_revision=spatial, duckdb_revision=duckdb, vcpkg_revision=vcpkg,
     platform=platform, gdal_read_contract=1, patch_sha256=sha(patch),
-    gdal_patch_sha256=sha(gdal_patch),
+    gdal_patch_sha256=sha(gdal_patch), allocator_contract=1,
+    allocator_patch_sha256=sha(allocator_patch),
     binary_sha256=sha(binary), public_key_sha256=sha(output / 'spatial-public.pem'),
 ), indent=2) + '\n')
 PY

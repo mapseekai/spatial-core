@@ -58,6 +58,11 @@ fn main() -> anyhow::Result<()> {
             row.get(0)
         })?;
     anyhow::ensure!(contract == 1, "unexpected GDAL read contract");
+    let allocator_contract: i32 =
+        connection.query_row("SELECT spatial_core_allocator_contract()", [], |row| {
+            row.get(0)
+        })?;
+    anyhow::ensure!(allocator_contract == 1, "unexpected allocator contract");
     drop(connection);
     scratch.close()?;
     println!("Provisioned and signature-verified patched Spatial");

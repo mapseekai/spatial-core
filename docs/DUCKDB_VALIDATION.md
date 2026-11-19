@@ -150,3 +150,22 @@ Verdict: 当前 GeoParquet 闭环通过本地验证；最初的 GDAL 多格式�
 未执行真实 AWS S3、完整 HTTPS/TLS 失败与重定向矩阵、远端 GPKG/Shapefile、GeoArrow native encoding/GeoParquet V2、动态 epoch、全部 Z/M 算法、磁盘耗尽与清理权限故障、生产数据规模/峰值 RSS/请求字节、Linux 执行和远端 CI。取消延迟受 native I/O 影响；buffer-manager limit 不是 RSS 硬上限，输出字节预算也不是磁盘硬配额。
 
 输出要求本地同文件系统 hard link 支持，不覆盖目标，不承诺断电持久化。SQL 只面向可信调用方；空间单位、CRS 与维度仍由 SQL 调用者明确。当前没有 PostGIS 事务路径改动，因此没有把未运行的专用数据库测试计为通过；直接结果流桥接仍未实现。
+
+## 默认 Cargo Debug 分配器修复（2026-11-19）
+
+旧签名构件在全新 Cargo target、默认 Debug profile 下运行 `spatial_sql_defines_boundary_clip_dissolve_buffer_and_transform_semantics`，于 `ST_Union_Agg` 的 arena 析构触发 `allocation_count >= size`，进程以 SIGABRT 退出。LLDB 另行观察到：Spatial 内嵌 Release core 使用主程序的 Debug allocator 分配 4096 字节，分配前后计数没有增加。问题来自两个模块对同一分配器记账不一致。
+
+修复让 Release 侧的 allocate/free/reallocate 在 `debug_info` 存在时维护计数，保持 Debug 侧断言、公开布局和 Release 分配器的初始化行为。Session 使用链接引擎的实际分配器状态检查 allocator contract 1；旧构件在 Debug 下返回 `Unsupported`。固定版本的源码、精确补丁和许可见 [原生补丁](../third_party/duckdb-spatial/README.md)。
+
+本机 macOS arm64 的新签名 Spatial SHA-256 为 `a97d471046ce82c581616bddc1669152bb50f5c93136959543d961b212db76cb`。此构件重新编译了内嵌 DuckDB 与 Spatial，复用了先前构建的固定版本 vcpkg 依赖；本地结果不等同于远端冷构建。
+
+- 原始失败用例在默认 Cargo Debug 下通过，未设置 `CARGO_PROFILE_DEV_DEBUG` / `CARGO_PROFILE_TEST_DEBUG`，未关闭断言。
+- 使用同一 Rust 修复和旧 r6 签名构件时，打开 Session 返回缺少 allocator contract 的错误，未发生 SIGABRT。
+- 独立双动态库探针编译真实 allocator 源码，修补前复现断言；修补后通过 96 组模块/归属/私有数据组合，包含 grow/shrink realloc、RAII、空指针与跨模块析构。探针使用简化异常格式化实现，只作为计数路径证据。
+- 自定义 `DUCKDB_DEBUG_ALLOCATION` 的额外指针映射不受支持；混合模式探针仍会触发指针映射断言，因此本库在检测到该编译宏时明确拒绝。
+
+独立消费方在另一个全新 target 中编译，manifest 不含 Cargo profile 调整，使用声明的 Rust 1.98.1。默认 Debug 下连续八个 Session 的 `ST_Union_Agg` 面积均为 6，关闭后临时目录清空。第二个消费方只对 `libduckdb-sys` 设置 package `debug = 0`，Rust 自身仍启用 `debug_assertions`；新补丁、旧补丁和官方扩展均完成同样八次查询。默认 Debug 消费方对旧补丁和官方扩展则正常返回 `Unsupported`，退出码为 1，没有 SIGABRT。
+
+默认门禁通过 147 项库测试、4 项 doctest 和 7 个 GDAL 示例。DuckDB 门禁通过 155 项常规测试、4 项 doctest、25 项原生集成，包含格式检查、Clippy、rustdoc 和示例。默认检查首轮的非 UTF-8 路径测试受沙箱 EPERM 限制；在沙箱外重新执行完整门禁后通过，未改测试以规避限制。PostGIS 与系统 GDAL 可选 GeoParquet 忽略项不计入本次本地结果。
+
+审查还验证了两个边界。CI 单测在设置 `SPATIAL_CORE_DUCKDB_EXPECT_DEBUG=1` 时，必须观察到实际原生 Debug 计数器；通过 LLDB 强制探针返回 false，单测按预期失败。原生扩展编译同时拒绝 `DEBUG` 和 `DUCKDB_DEBUG_ALLOCATION`，避免复用 CMake 构建目录时的 `FORCE_DEBUG`/`DEBUG_ALLOCATION` 选项绕过 Release 构件约定。普通 Debug 宿主与 Release 扩展的 128 组失败回调探针通过，包含返回空指针、抛异常、失败扩容/缩容后原数据及清理的检查；探针采用真实 allocator 源码和简化异常格式化。最终配置保护补丁重新构建后，上述二进制 SHA-256 未改变。

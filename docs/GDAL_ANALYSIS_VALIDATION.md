@@ -30,7 +30,7 @@
 
 DuckDB 可选门禁单独计数。提交前使用 `fa271b3` 对应的[签名 Spatial 构件](DUCKDB_VALIDATION.md#原生修复后的验证)（SHA-256 `41f44ad005b78fa2cfc4dd8ce26bbe254ee7bb7ff99e1db495e6fab890d2d2ce`），按[仓库 CI 的编译配置](TESTING.md)重跑 `scripts/ci/test-duckdb.sh`：154 项常规测试、4 项 doctest、25/25 项原生集成，以及 Clippy、rustdoc 和示例全部通过。原生回归包含跨批次读写 FlatGeobuf 的 NULL 和空几何，以及重名或空名字段。此前中间构件的 23 项集成测试不再重复计数。
 
-DuckDB 仍有一个独立的本机风险：保持上述签名扩展和公钥不变，使用 Cargo 默认 Debug（带调试信息）单独运行 `cargo test --locked --features duckdb --lib duckdb::query::tests::spatial_sql_defines_boundary_clip_dissolve_buffer_and_transform_semantics -- --ignored --exact --test-threads=1`，DuckDB 原生分配器的 `allocation_count >= size` 断言会使进程以 SIGABRT 退出。同一用例在仓库 CI 配置下通过；尚未确定根因。
+当时还发现一个独立的 DuckDB 风险：上述旧签名构件在 Cargo 默认 Debug 下运行空间 SQL 回归，会触发 `allocation_count >= size` 并以 SIGABRT 退出。后续已定位为 Release Spatial 与 Debug 引擎之间的分配器记账不一致；新原生补丁及默认 Debug 的验证见 [DuckDB 修复记录](DUCKDB_VALIDATION.md#默认-cargo-debug-分配器修复2026-11-19)。此修复需要重新构建并部署 Spatial，不能把上述旧构件计为已修复。
 
 ## 四轮对抗复审
 

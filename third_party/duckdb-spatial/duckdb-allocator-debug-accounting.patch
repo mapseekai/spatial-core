@@ -1,0 +1,82 @@
+diff --git a/src/common/allocator/allocator.cpp b/src/common/allocator/allocator.cpp
+index 948b87cd..d018b285 100644
+--- a/src/common/allocator/allocator.cpp
++++ b/src/common/allocator/allocator.cpp
+@@ -9,6 +9,10 @@
+ 
+ #include <cstdint>
+ 
++#if defined(DEBUG) || defined(DUCKDB_DEBUG_ALLOCATION)
++#error "Spatial allocator contract 1 requires Release mode without DUCKDB_DEBUG_ALLOCATION"
++#endif
++
+ #if defined(__linux__) && INTPTR_MAX == INT64_MAX
+ #include <cinttypes>
+ #include <cstdio>
+@@ -72,7 +76,6 @@ void AllocatedData::Reset() {
+ // Debug Info
+ //===--------------------------------------------------------------------===//
+ struct AllocatorDebugInfo {
+-#ifdef DEBUG
+ 	AllocatorDebugInfo();
+ 	~AllocatorDebugInfo();
+ 
+@@ -89,7 +92,6 @@ private:
+ 	//! Set of active outstanding pointers together with stack traces
+ 	unordered_map<data_ptr_t, pair<idx_t, string>> pointers;
+ #endif
+-#endif
+ };
+ 
+ PrivateAllocatorData::PrivateAllocatorData() {
+@@ -171,11 +173,9 @@ data_ptr_t Allocator::AllocateData(idx_t size) {
+ 	if (!result) {
+ 		throw OutOfMemoryException("Failed to allocate block of %llu bytes (bad allocation)", size);
+ 	}
+-#ifdef DEBUG
+ 	if (ShouldUseDebugInfo()) {
+ 		private_data->debug_info->AllocateData(result, size);
+ 	}
+-#endif
+ 	return result;
+ }
+ 
+@@ -184,11 +184,9 @@ void Allocator::FreeData(data_ptr_t pointer, idx_t size) {
+ 		return;
+ 	}
+ 	D_ASSERT(size > 0);
+-#ifdef DEBUG
+ 	if (ShouldUseDebugInfo()) {
+ 		private_data->debug_info->FreeData(pointer, size);
+ 	}
+-#endif
+ 	free_function(private_data.get(), pointer, size);
+ }
+ 
+@@ -206,11 +204,9 @@ data_ptr_t Allocator::ReallocateData(data_ptr_t pointer, idx_t old_size, idx_t s
+ 	if (!new_pointer) {
+ 		throw OutOfMemoryException("Failed to re-allocate block of %llu bytes (bad allocation)", size);
+ 	}
+-#ifdef DEBUG
+ 	if (ShouldUseDebugInfo()) {
+ 		private_data->debug_info->ReallocateData(pointer, new_pointer, old_size, size);
+ 	}
+-#endif
+ 	return new_pointer;
+ }
+ shared_ptr<Allocator> &Allocator::DefaultAllocatorReference() {
+@@ -246,7 +242,6 @@ void Allocator::MallocTrim(idx_t pad) {
+ //===--------------------------------------------------------------------===//
+ // Debug Info (extended)
+ //===--------------------------------------------------------------------===//
+-#ifdef DEBUG
+ AllocatorDebugInfo::AllocatorDebugInfo() {
+ 	allocation_count = 0;
+ }
+@@ -294,6 +289,4 @@ void AllocatorDebugInfo::ReallocateData(data_ptr_t pointer, data_ptr_t new_point
+ 	AllocateData(new_pointer, new_size);
+ }
+ 
+-#endif
+-
+ } // namespace duckdb

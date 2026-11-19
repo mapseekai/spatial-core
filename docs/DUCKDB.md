@@ -2,7 +2,7 @@
 
 `duckdb` 是可选 feature，默认构建不会链接 DuckDB。当前提供 [设计](DUCKDB_DESIGN.md) 的矢量读取闭环：独立 Session、本地/HTTP/S3 输入、metadata 与临时 view、参数化 SQL、Arrow 批次、本地 GeoParquet 输出。空间函数直接使用 SQL；类型化六类算子、PostGIS 流式桥接和性能调优仍是后续阶段。
 
-`Reader::Gdal` 使用本仓库修补并签名的 Spatial 扩展。补丁把 GDAL 的错误码及 CPL failure 传回 Rust，包括已经读出部分记录后失败的情况；`ST_Read_Meta` 和 `ST_Read` 共用 driver/open options/sibling 配置。构建还修正 GDAL 的 FlatGeobuf Arrow NULL 几何标记，保留 NULL 与 EMPTY 的区别。未经修补的官方扩展仍可用于 GeoParquet 和空间 SQL，但它的 GDAL reader 会在 I/O 前明确拒绝。
+`Reader::Gdal` 使用本仓库修补并签名的 Spatial 扩展。补丁把 GDAL 的错误码及 CPL failure 传回 Rust，包括已经读出部分记录后失败的情况；`ST_Read_Meta` 和 `ST_Read` 共用 driver/open options/sibling 配置。构建还修正 GDAL 的 FlatGeobuf Arrow NULL 几何标记，保留 NULL 与 EMPTY 的区别，并支持 Cargo 默认 Debug 引擎的跨模块分配计数。未经修补的官方扩展可用于 Release 引擎的 GeoParquet 和空间 SQL，但它的 GDAL reader 会在 I/O 前明确拒绝。
 
 ## 构建与部署
 
@@ -39,7 +39,9 @@ SPATIAL_CORE_DUCKDB_SPATIAL_PUBLIC_KEY=/your/trusted/spatial-public.pem \
 
 `Session::open` 只在私有临时目录绑定显式公钥，并从稳定安装路径 `LOAD ... FROM spatial_core`；不会安装扩展、联网获取公钥或写用户默认扩展目录。关闭 Session 清理凭据与临时目录，保留部署构件。`allow_unsigned_extensions` 保持 false；官方 httpfs 仍由 DuckDB 官方公钥验证。[DuckDB 2.0 自定义扩展仓库](https://duckdb.org/2026/10/21/announcing-duckdb-200)
 
-`spatial_public_key = None` 保留官方扩展模式，要求部署目录根部的 `spatial.duckdb_extension` 与 `httpfs.duckdb_extension`；`capabilities().gdal_read_supported` 为 false。有公钥时必须检测到补丁契约，否则打开失败。`capabilities()` 同时报告引擎/扩展版本及内置 GDAL 驱动，它们与系统 GDAL 是两套能力集合。
+`spatial_public_key = None` 保留 Release 引擎的官方扩展模式，要求部署目录根部的 `spatial.duckdb_extension` 与 `httpfs.duckdb_extension`；`capabilities().gdal_read_supported` 为 false。有公钥时必须检测到 GDAL 读取契约，否则打开失败。`capabilities()` 同时报告引擎/扩展版本及内置 GDAL 驱动，它们与系统 GDAL 是两套能力集合。
+
+Cargo 默认 Debug 构建需要带 `spatial_core_allocator_contract() = 1` 的新签名构件。旧补丁构件和官方 Spatial 缺少此契约，Session 会返回 `Unsupported`，避免空间聚合/连接在释放内存时触发原生断言。检查读取实际链接引擎的分配器状态，不依赖 Rust 的 `debug_assertions` 或调用方的 Cargo profile。升级须重新构建并部署扩展；仅重编译 Rust 不足以修复旧构件。不需要关闭宿主的 Debug 信息或断言。Spatial 扩展自身必须使用脚本的 Release 配置；`DEBUG`（包括 CMake `FORCE_DEBUG`）和 `DUCKDB_DEBUG_ALLOCATION` 在扩展编译时明确拒绝。宿主自定义 `DUCKDB_DEBUG_ALLOCATION` 指针追踪构建同样不在兼容范围，编译时拒绝。
 
 ## 完整调用
 

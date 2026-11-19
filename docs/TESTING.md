@@ -45,13 +45,12 @@ GDAL 路径的 GeoParquet 需要 GDAL Parquet driver；可选 DuckDB 后端使�
 按 [部署说明](DUCKDB.md) 构建并签名修补后的 Spatial，预置匹配的官方 httpfs，再执行：
 
 ```sh
-CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
 SPATIAL_CORE_DUCKDB_EXTENSION_DIR=/your/deployment/duckdb-extensions \
 SPATIAL_CORE_DUCKDB_SPATIAL_PUBLIC_KEY=/your/trusted/spatial-public.pem \
   bash scripts/ci/test-duckdb.sh
 ```
 
-上述 Cargo 设置与 DuckDB CI 一致。签名扩展须由当前工作区的 Spatial 和内嵌 GDAL 补丁构建；仅版本号相同不能证明其包含同一组修复。
+DuckDB CI 使用 Cargo 默认 Debug 信息设置，保留原生分配器断言；不再设置 `CARGO_PROFILE_DEV_DEBUG=0` 或 `CARGO_PROFILE_TEST_DEBUG=0`。CI 通过仅供测试使用的 `SPATIAL_CORE_DUCKDB_EXPECT_DEBUG=1`，额外断言实际链接的引擎启用了 Debug 分配计数，防止构建配置再次绕过回归。签名扩展须由当前工作区的 Spatial、内嵌 GDAL 和 DuckDB 分配器补丁构建，包含 allocator contract 1；仅版本号相同不能证明其包含同一组修复。
 
 默认 feature 不编译 DuckDB；开启 feature 的普通测试仍忽略需要外部扩展的集成测试。脚本显式选中 `duckdb::` 的 ignored 项，缺扩展失败，不影响独立 PostGIS 测试选择。
 

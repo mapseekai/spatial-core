@@ -1,6 +1,16 @@
 use std::{env, path::PathBuf};
 
 fn main() {
+    if env::var_os("CARGO_FEATURE_DUCKDB").is_some() {
+        println!("cargo:rerun-if-changed=src/duckdb/allocator.cpp");
+        cc::Build::new()
+            .cpp(true)
+            .std("c++17")
+            .define("DUCKDB_STATIC_BUILD", None)
+            .include(env::var_os("DEP_DUCKDB_INCLUDE").expect("bundled DuckDB headers"))
+            .file("src/duckdb/allocator.cpp")
+            .compile("spatial_core_duckdb_allocator");
+    }
     let version =
         env::var("DEP_GDAL_VERSION_NUMBER").expect("gdal-sys must report the GDAL build version");
     println!("cargo:rustc-env=SPATIAL_CORE_GDAL_BUILD_VERSION={version}");

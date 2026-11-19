@@ -14,7 +14,7 @@ name = "spatial_core"
 path = "src/lib.rs"
 
 [features]
-duckdb = ["dep:duckdb", "dep:serde_json"]
+duckdb = ["dep:duckdb", "dep:libduckdb-sys", "dep:serde_json"]
 
 [[example]]
 name = "duckdb_vector"
@@ -26,6 +26,7 @@ required-features = ["duckdb"]
 
 [dependencies]
 duckdb = { version = "=1.20000.2", optional = true, features = ["bundled", "parquet", "json"] }
+libduckdb-sys = { version = "=1.20000.2", optional = true }
 serde_json = { version = "1.0", optional = true }
 anyhow = "1.0.104"
 futures = "0.3.34"

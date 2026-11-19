@@ -4,12 +4,17 @@ use ::duckdb::{Config, Connection};
 
 use super::{Error, Result, literal, path_text};
 
+unsafe extern "C" {
+    fn spatial_core_duckdb_debug_allocator() -> bool;
+}
+
 /// Explicit native resources and extension locations for one isolated engine.
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
     pub extension_directory: PathBuf,
     /// Trust this RSA-2048 public key for the patched Spatial repository under
-    /// `extension_directory`. None loads the official signed extension instead.
+    /// `extension_directory`. None loads the official signed extension on
+    /// Release DuckDB hosts; Debug hosts require the patched allocator contract.
     pub spatial_public_key: Option<String>,
     pub temp_directory: PathBuf,
     /// DuckDB buffer-manager limit, not a hard process RSS limit.
@@ -158,6 +163,7 @@ impl Session {
                         Error::engine("extension load (check engine version and platform)", e)
                     })?;
             }
+            check_allocator_contract(&connection)?;
             connection.execute_batch(&format!(
             "SET geometry_always_xy = true; SET http_timeout = {}; SET http_retries = {}; SET enable_server_cert_verification = true;",
             config.http_timeout_seconds, config.http_retries,
@@ -323,6 +329,32 @@ impl Session {
     }
 }
 
+fn check_allocator_contract(connection: &Connection) -> Result<()> {
+    // SAFETY: The open connection initialized the allocator; the probe uses the linked core's headers.
+    if !unsafe { spatial_core_duckdb_debug_allocator() } {
+        return Ok(());
+    }
+    let has_contract: bool = connection
+        .query_row(
+            "SELECT count(*) > 0 FROM duckdb_functions() WHERE function_name = 'spatial_core_allocator_contract'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| Error::engine("allocator contract discovery", e))?;
+    if !has_contract
+        || !connection
+            .query_row("SELECT spatial_core_allocator_contract() = 1", [], |row| {
+                row.get::<_, bool>(0)
+            })
+            .map_err(|e| Error::engine("allocator contract", e))?
+    {
+        return Err(Error::Unsupported(
+            "Debug DuckDB requires Spatial with allocator contract 1; rebuild and provision the patched extension",
+        ));
+    }
+    Ok(())
+}
+
 fn credential_scope(scope: &str) -> Result<String> {
     let (_, tail) = scope
         .split_once("://")
@@ -438,6 +470,31 @@ mod tests {
         let config = SessionConfig::new(directory.path(), directory.path());
         assert!(matches!(Session::open(config), Err(Error::InvalidInput(_))));
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn debug_allocator_rejects_missing_or_incompatible_spatial_contract() {
+        let connection = Connection::open_in_memory().unwrap();
+        // SAFETY: This connection initialized the linked core's allocator.
+        let debug_allocator = unsafe { spatial_core_duckdb_debug_allocator() };
+        if std::env::var("SPATIAL_CORE_DUCKDB_EXPECT_DEBUG").as_deref() == Ok("1") {
+            assert!(debug_allocator, "CI must exercise the native Debug allocator");
+        }
+        for contract in [None, Some(0), Some(2), Some(1)] {
+            if let Some(version) = contract {
+                connection
+                    .execute_batch(&format!(
+                        "CREATE OR REPLACE MACRO spatial_core_allocator_contract() AS {version}"
+                    ))
+                    .unwrap();
+            }
+            let result = check_allocator_contract(&connection);
+            if debug_allocator && contract != Some(1) {
+                assert!(matches!(result, Err(Error::Unsupported(_))));
+            } else {
+                result.unwrap();
+            }
+        }
     }
 
     #[test]

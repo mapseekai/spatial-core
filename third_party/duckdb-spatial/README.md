@@ -1,6 +1,6 @@
-# Spatial GDAL read-error patch
+# Spatial native patches
 
-This directory contains patches to DuckDB Spatial and its pinned GDAL dependency.
+This directory contains patches to DuckDB Spatial and its pinned GDAL and DuckDB dependencies.
 It restores the `Reader::Gdal` contract: a native read failure must
 reach the caller and must not publish a successful partial GeoParquet file.
 
@@ -33,6 +33,17 @@ registers the GDAL patch in the existing vcpkg overlay:
   default `geom` alias; ordinary
   `wkb_geometry` attributes keep their own meaning and values.
 - Expose `spatial_core_gdal_read_contract() = 1` for Rust capability gating.
+- Expose `spatial_core_allocator_contract() = 1` for Debug host compatibility.
+
+`duckdb-allocator-debug-accounting.patch` keeps allocator bookkeeping available
+in the statically embedded Release core. Allocations, reallocations and frees
+update an existing Debug owner's counter across the module boundary. Release
+allocators still do not create debug state; public layouts and Debug assertions
+are unchanged. The extension must remain a Release build: the patch rejects
+`DEBUG` (including cached CMake `FORCE_DEBUG`) and `DUCKDB_DEBUG_ALLOCATION`
+at compilation. This supports the default Cargo Debug host, not custom pointer
+tracking. The build script checks the exact
+core diff and records its hash and allocator contract in `spatial-build.json`.
 
 `gdal-flatgeobuf-null.patch` corrects the optimized GDAL FlatGeobuf Arrow reader.
 A missing geometry gets a NULL validity bit and the previous binary offset,
@@ -55,7 +66,9 @@ for executed platforms and limitations. Drivers can still accept malformed data
 without reporting an error; this patch is not a complete format validator.
 
 The patch is derived from DuckDB Spatial, copyright 2018–2025 DuckDB Foundation,
-under the [upstream MIT license](LICENSE). Keep this license with the patch and
+under the [upstream MIT license](LICENSE). The allocator patch is derived from
+DuckDB core, copyright 2018–2026 Stichting DuckDB Foundation, under its
+[MIT license](DUCKDB-LICENSE.txt). Keep these licenses with the patches and
 redistributed native artifacts. The FlatGeobuf driver is copyright 2018–2020,
 Björn Harrtell, under MIT; the pinned [GDAL license notices](GDAL-LICENSE.txt) are
 included. Binary distributions must also carry the licenses
