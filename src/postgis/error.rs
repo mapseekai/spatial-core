@@ -1,4 +1,5 @@
 use super::WriteStage;
+use crate::control::{ErrorCategory, SpatialError};
 
 /// A failure of input validation, reading, writing, or transaction completion.
 #[derive(Debug, thiserror::Error)]
@@ -94,5 +95,55 @@ impl PostGisError {
             primary: Box::new(self),
             cleanup: Box::new(cleanup),
         }
+    }
+}
+
+impl SpatialError for PostGisError {
+    fn category(&self) -> ErrorCategory {
+        match self.primary() {
+            Self::InvalidInput(_) => ErrorCategory::InvalidInput,
+            Self::Unsupported(_) => ErrorCategory::Unsupported,
+            Self::SchemaMismatch(_) => ErrorCategory::Conflict,
+            Self::ResourceLimit(_) => ErrorCategory::ResourceLimit,
+            Self::Cancelled => ErrorCategory::Cancelled,
+            Self::CommitOutcomeUnknown(_) => ErrorCategory::UnknownOutcome,
+            Self::CleanupTimeout => ErrorCategory::Cleanup,
+            Self::Source { .. } | Self::Database { .. } | Self::Pool(_) | Self::Worker(_) => {
+                ErrorCategory::Execution
+            }
+            Self::Cleanup { primary, .. } => primary.category(),
+        }
+    }
+
+    fn has_cleanup_failure(&self) -> bool {
+        matches!(self, Self::Cleanup { .. } | Self::CleanupTimeout)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spatial_error_classification_preserves_primary_category_and_cleanup_flags() {
+        let invalid = PostGisError::InvalidInput("bad srid".into());
+        assert_eq!(invalid.category(), ErrorCategory::InvalidInput);
+        assert!(!invalid.is_cancelled());
+        assert!(!invalid.is_outcome_unknown());
+        assert!(!invalid.has_cleanup_failure());
+
+        let conflict = PostGisError::SchemaMismatch("table exists".into());
+        assert_eq!(conflict.category(), ErrorCategory::Conflict);
+
+        let wrapped = PostGisError::Cancelled.with_cleanup(PostGisError::CleanupTimeout);
+        assert_eq!(wrapped.category(), ErrorCategory::Cancelled);
+        assert!(wrapped.is_cancelled());
+        assert!(wrapped.has_cleanup_failure());
+
+        assert_eq!(
+            PostGisError::CleanupTimeout.category(),
+            ErrorCategory::Cleanup
+        );
+        assert!(PostGisError::CleanupTimeout.has_cleanup_failure());
     }
 }

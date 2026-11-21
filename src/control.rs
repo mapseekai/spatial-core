@@ -1,9 +1,54 @@
-//! Cooperative cancellation shared by async orchestration and GDAL workers.
+//! Cooperative cancellation and unified error classification across domains.
 
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
+
+/// Domain-independent failure category for upper-layer orchestration and retry policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ErrorCategory {
+    /// Invalid arguments, names, coordinates, or input values.
+    InvalidInput,
+    /// Unsupported driver, version, data type, or target capability.
+    Unsupported,
+    /// Existing output, layer, or schema contract conflict.
+    Conflict,
+    /// Required source or target layer/object was not found.
+    NotFound,
+    /// Caller-configured record, row, or byte budget was exceeded.
+    ResourceLimit,
+    /// Cooperative cancellation was observed.
+    Cancelled,
+    /// Final commit or completion state could not be confirmed; reconcile before retrying.
+    UnknownOutcome,
+    /// Resource close, rollback, or temporary cleanup failed or timed out.
+    Cleanup,
+    /// Native engine, I/O, pool, callback, or database execution failure.
+    Execution,
+}
+
+/// Unified classification interface implemented by domain error types across this crate.
+pub trait SpatialError: std::error::Error + Send + Sync {
+    /// Coarse machine-readable failure category derived from the primary error.
+    fn category(&self) -> ErrorCategory;
+
+    /// Whether the primary failure was cooperative cancellation.
+    fn is_cancelled(&self) -> bool {
+        self.category() == ErrorCategory::Cancelled
+    }
+
+    /// Whether the final commit/completion outcome is unknown and requires reconciliation.
+    fn is_outcome_unknown(&self) -> bool {
+        self.category() == ErrorCategory::UnknownOutcome
+    }
+
+    /// Whether a close, rollback, or temporary-file cleanup failure was also observed.
+    fn has_cleanup_failure(&self) -> bool {
+        false
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Cancellation(Arc<CancellationState>);
@@ -18,9 +63,21 @@ struct CancellationState {
 #[error("processing cancelled")]
 pub struct Cancelled;
 
+impl SpatialError for Cancelled {
+    fn category(&self) -> ErrorCategory {
+        ErrorCategory::Cancelled
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 #[error("invalid processing input: {0}")]
 pub struct InvalidInput(pub String);
+
+impl SpatialError for InvalidInput {
+    fn category(&self) -> ErrorCategory {
+        ErrorCategory::InvalidInput
+    }
+}
 
 impl Cancellation {
     pub fn cancel(&self) {
@@ -41,9 +98,9 @@ impl Cancellation {
         }
     }
 
-    pub fn check(&self) -> anyhow::Result<()> {
+    pub fn check(&self) -> Result<(), Cancelled> {
         if self.is_cancelled() {
-            return Err(Cancelled.into());
+            return Err(Cancelled);
         }
         Ok(())
     }
@@ -58,7 +115,11 @@ mod tests {
         let cancel = Cancellation::default();
         assert!(cancel.check().is_ok());
         cancel.clone().cancel();
-        assert!(cancel.check().unwrap_err().is::<Cancelled>());
+        let error = cancel.check().unwrap_err();
+        assert_eq!(error.category(), ErrorCategory::Cancelled);
+        assert!(error.is_cancelled());
+        assert!(!error.is_outcome_unknown());
+        assert!(!error.has_cleanup_failure());
     }
 
     #[tokio::test]

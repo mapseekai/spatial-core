@@ -14,6 +14,7 @@ use super::{Error, Result, Session, Value};
 /// Per-operation cancellation and output budgets. Limits reject excess output;
 /// they do not bound DuckDB's intermediate allocations or a consumer's retention.
 #[derive(Default)]
+#[must_use]
 pub struct Control<'a> {
     pub cancellation: Option<&'a Cancellation>,
     pub max_rows: Option<u64>,
@@ -21,13 +22,37 @@ pub struct Control<'a> {
     pub max_bytes: Option<u64>,
 }
 
-impl Control<'_> {
+impl<'a> Control<'a> {
+    /// Observe a shared cooperative cancellation token.
+    pub fn cancellation(mut self, cancellation: &'a Cancellation) -> Self {
+        self.cancellation = Some(cancellation);
+        self
+    }
+
+    /// Cap the total number of output rows accepted from this operation.
+    pub fn max_rows(mut self, limit: u64) -> Self {
+        self.max_rows = Some(limit);
+        self
+    }
+
+    /// Cap the cumulative Arrow buffer bytes or exported file bytes.
+    pub fn max_bytes(mut self, limit: u64) -> Self {
+        self.max_bytes = Some(limit);
+        self
+    }
+
     pub(crate) fn check(&self) -> Result<()> {
         if self.cancellation.is_some_and(Cancellation::is_cancelled) {
             Err(Error::Cancelled)
         } else {
             Ok(())
         }
+    }
+}
+
+impl<'a> From<&'a Cancellation> for Control<'a> {
+    fn from(cancellation: &'a Cancellation) -> Self {
+        Self::default().cancellation(cancellation)
     }
 }
 

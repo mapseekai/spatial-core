@@ -1,3 +1,4 @@
+use crate::control::{ErrorCategory, SpatialError};
 use std::{fmt, io};
 
 /// Errors from the optional DuckDB backend.
@@ -55,6 +56,14 @@ impl Error {
         }
     }
 
+    /// The original error, before any cleanup or rollback failure was attached.
+    pub fn primary(&self) -> &Self {
+        match self {
+            Self::Cleanup { primary, .. } | Self::Rollback { primary, .. } => primary.primary(),
+            other => other,
+        }
+    }
+
     /// Unredacted engine diagnostics, which may contain sensitive input.
     /// Credential setup errors never retain the native diagnostic.
     pub fn sensitive_diagnostic(&self) -> Option<&str> {
@@ -68,6 +77,27 @@ impl Error {
 
     pub(crate) fn secret() -> Self {
         Self::InvalidInput("secret configuration was rejected")
+    }
+}
+
+impl SpatialError for Error {
+    fn category(&self) -> ErrorCategory {
+        match self.primary() {
+            Self::InvalidInput(_) => ErrorCategory::InvalidInput,
+            Self::Unsupported(_) => ErrorCategory::Unsupported,
+            Self::Cancelled => ErrorCategory::Cancelled,
+            Self::LimitExceeded(_) => ErrorCategory::ResourceLimit,
+            Self::PublishedCleanup(_) => ErrorCategory::Cleanup,
+            Self::Engine { .. } | Self::Consumer(_) | Self::Io(_) => ErrorCategory::Execution,
+            Self::Cleanup { primary, .. } | Self::Rollback { primary, .. } => primary.category(),
+        }
+    }
+
+    fn has_cleanup_failure(&self) -> bool {
+        matches!(
+            self,
+            Self::PublishedCleanup(_) | Self::Cleanup { .. } | Self::Rollback { .. }
+        )
     }
 }
 
@@ -90,6 +120,15 @@ mod tests {
                 .unwrap()
                 .contains("private-token")
         );
+        assert_eq!(error.category(), ErrorCategory::Execution);
+        assert!(!error.has_cleanup_failure());
         assert!(Error::secret().sensitive_diagnostic().is_none());
+        let wrapped = Error::Cleanup {
+            primary: Box::new(Error::Cancelled),
+            cleanup: io::Error::other("cleanup failed"),
+        };
+        assert_eq!(wrapped.category(), ErrorCategory::Cancelled);
+        assert!(wrapped.is_cancelled());
+        assert!(wrapped.has_cleanup_failure());
     }
 }

@@ -1,6 +1,6 @@
 //! Control, diagnostics and completion contracts for synchronous GDAL operations.
 
-use crate::control::Cancellation;
+use crate::control::{Cancellation, ErrorCategory, SpatialError};
 use std::{fmt, ops::ControlFlow};
 
 /// Native progress is advisory; only a successful operation return confirms closure.
@@ -61,6 +61,12 @@ impl<'a> Control<'a> {
 
     pub(crate) fn is_active(&self) -> bool {
         self.callback.is_some() || self.cancellation.is_some()
+    }
+}
+
+impl<'a> From<&'a Cancellation> for Control<'a> {
+    fn from(cancellation: &'a Cancellation) -> Self {
+        Self::default().cancellation(cancellation)
     }
 }
 
@@ -295,6 +301,27 @@ impl Error {
     }
 }
 
+impl SpatialError for Error {
+    fn category(&self) -> ErrorCategory {
+        match self.kind {
+            ErrorKind::InvalidArgument => ErrorCategory::InvalidInput,
+            ErrorKind::Unsupported => ErrorCategory::Unsupported,
+            ErrorKind::OutputExists | ErrorKind::LayerExists => ErrorCategory::Conflict,
+            ErrorKind::LayerNotFound => ErrorCategory::NotFound,
+            ErrorKind::Cancelled => ErrorCategory::Cancelled,
+            ErrorKind::Close => ErrorCategory::Cleanup,
+            ErrorKind::Open
+            | ErrorKind::Translate
+            | ErrorKind::Processing
+            | ErrorKind::CallbackPanicked => ErrorCategory::Execution,
+        }
+    }
+
+    fn has_cleanup_failure(&self) -> bool {
+        !self.cleanup.is_empty() || self.kind == ErrorKind::Close
+    }
+}
+
 /// Result of a synchronous GDAL operation.
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -331,4 +358,29 @@ pub enum ScanMode {
     Fast,
     /// Allow a complete scan to compute the result.
     Exact,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn operation_error_and_control_follow_unified_contracts() {
+        let token = Cancellation::default();
+        let control = Control::from(&token);
+        assert!(control.check().is_ok());
+        token.cancel();
+        let err = control.check().unwrap_err();
+        assert_eq!(err.category(), ErrorCategory::Cancelled);
+        assert!(err.is_cancelled());
+        assert!(!err.is_outcome_unknown());
+        assert!(!err.has_cleanup_failure());
+
+        let conflict = Error::new(ErrorKind::OutputExists, Stage::Prepare, "exists");
+        assert_eq!(conflict.category(), ErrorCategory::Conflict);
+
+        let close = Error::new(ErrorKind::Close, Stage::CloseOutput, "close failed");
+        assert_eq!(close.category(), ErrorCategory::Cleanup);
+        assert!(close.has_cleanup_failure());
+    }
 }

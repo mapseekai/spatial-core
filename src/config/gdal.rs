@@ -1,12 +1,39 @@
 //! Explicit GDAL configuration. Import workers restore thread-local overrides.
-use anyhow::{Context, Result};
+use crate::control::{ErrorCategory, SpatialError};
 use gdal::config::set_config_option;
 use std::{
-    ffi::{CStr, CString},
+    ffi::{CStr, CString, NulError},
     marker::PhantomData,
     path::Path,
     rc::Rc,
 };
+
+/// Errors produced when validating or applying explicit GDAL configuration.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ConfigError {
+    /// Option key or file path failed validation.
+    #[error("invalid GDAL configuration: {0}")]
+    InvalidOption(&'static str),
+    /// Key, value, or path contained an embedded NUL byte.
+    #[error("GDAL configuration string contains NUL: {0}")]
+    EmbeddedNul(#[from] NulError),
+    /// GDAL rejected the process-wide configuration call.
+    #[error("GDAL configuration failed: {0}")]
+    Gdal(#[from] gdal::errors::GdalError),
+}
+
+impl SpatialError for ConfigError {
+    fn category(&self) -> ErrorCategory {
+        match self {
+            Self::InvalidOption(_) | Self::EmbeddedNul(_) => ErrorCategory::InvalidInput,
+            Self::Gdal(_) => ErrorCategory::Execution,
+        }
+    }
+}
+
+/// Result returned by GDAL configuration helpers.
+pub type Result<T> = std::result::Result<T, ConfigError>;
 
 /// Explicit input options, including credentials. Debug never prints values.
 #[derive(Clone, Default)]
@@ -28,7 +55,9 @@ impl GdalOptions {
     /// # Errors
     /// Rejects empty keys and NUL bytes in keys or values.
     pub fn set(mut self, key: &str, value: &str) -> Result<Self> {
-        anyhow::ensure!(!key.is_empty(), "GDAL option key is empty");
+        if key.is_empty() {
+            return Err(ConfigError::InvalidOption("GDAL option key is empty"));
+        }
         self.0.push((CString::new(key)?, CString::new(value)?));
         Ok(self)
     }
@@ -109,8 +138,6 @@ pub fn apply_gdal_options(options: &[(&str, &str)]) -> Result<()> {
 /// `override_env` controls whether file-based values override environment
 /// variables (`true`) or not (`false`).
 pub fn load_config_file(path: &Path, override_env: bool) -> Result<()> {
-    use std::ffi::CString;
-
     if !path.exists() {
         tracing::warn!(
             path = %path.display(),
@@ -119,10 +146,9 @@ pub fn load_config_file(path: &Path, override_env: bool) -> Result<()> {
         return Ok(());
     }
 
-    let c_path = CString::new(
-        path.to_str()
-            .context("GDAL config file path is not valid UTF-8")?,
-    )?;
+    let c_path = CString::new(path.to_str().ok_or(ConfigError::InvalidOption(
+        "GDAL config file path is not valid UTF-8",
+    ))?)?;
 
     // SAFETY: the NUL-terminated path remains alive throughout the synchronous load.
     unsafe {
@@ -166,6 +192,8 @@ mod tests {
             gdal::config::get_thread_local_config_option(key, "missing")?,
             "missing"
         );
+        let err = GdalOptions::default().set("", "value").unwrap_err();
+        assert_eq!(err.category(), ErrorCategory::InvalidInput);
         Ok(())
     }
 }
