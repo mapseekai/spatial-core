@@ -2,12 +2,36 @@ use super::RasterStorage;
 use crate::raster::tiling::TileWindow;
 use anyhow::{Context, Result, anyhow};
 use gdal::{Dataset, raster::GdalDataType};
-use std::path::PathBuf;
-use wkb_raster::{
-    Endian, InMemoryRasterData, OfflineRasterData, PixType, Raster, RasterBand, RasterDataSource,
-};
 
-pub(super) fn band_type_to_pixtype(t: GdalDataType, nodata: Option<f64>) -> Result<PixType> {
+const WKB_NDR_LITTLE_ENDIAN: u8 = 1;
+const WKB_RASTER_HEADER_BYTES: usize = 61;
+const BAND_FLAG_OFFLINE: u8 = 0x80;
+const BAND_FLAG_HAS_NODATA: u8 = 0x40;
+
+const PT_8BUI: u8 = 4;
+const PT_16BSI: u8 = 5;
+const PT_16BUI: u8 = 6;
+const PT_32BSI: u8 = 7;
+const PT_32BUI: u8 = 8;
+const PT_32BF: u8 = 10;
+const PT_64BF: u8 = 11;
+
+const HEX: &[u8; 16] = b"0123456789abcdef";
+
+#[inline]
+fn push_hex_byte(out: &mut Vec<u8>, byte: u8) {
+    out.push(HEX[(byte >> 4) as usize]);
+    out.push(HEX[(byte & 0x0f) as usize]);
+}
+
+#[inline]
+fn push_hex_slice(out: &mut Vec<u8>, bytes: &[u8]) {
+    for &byte in bytes {
+        push_hex_byte(out, byte);
+    }
+}
+
+pub(super) fn validate_band_nodata(t: GdalDataType, nodata: Option<f64>) -> Result<()> {
     if let Some(value) = nodata {
         let valid = match t {
             GdalDataType::UInt8 => {
@@ -38,131 +62,179 @@ pub(super) fn band_type_to_pixtype(t: GdalDataType, nodata: Option<f64>) -> Resu
             _ => false,
         };
         if !valid {
-            return Err(anyhow!(format!(
-                "NoData value {value} does not fit band type {t:?}"
-            )));
+            return Err(anyhow!("NoData value {value} does not fit band type {t:?}"));
         }
     }
+    pixtype_code(t)?;
+    Ok(())
+}
+
+fn pixtype_code(t: GdalDataType) -> Result<u8> {
     match t {
-        GdalDataType::UInt8 => Ok(PixType::UInt8(nodata.map(|value| value as u8))),
-        GdalDataType::UInt16 => Ok(PixType::UInt16(nodata.map(|value| value as u16))),
-        GdalDataType::Int16 => Ok(PixType::Int16(nodata.map(|value| value as i16))),
-        GdalDataType::Int32 => Ok(PixType::Int32(nodata.map(|value| value as i32))),
-        GdalDataType::UInt32 => Ok(PixType::UInt32(nodata.map(|value| value as u32))),
-        GdalDataType::Float32 => Ok(PixType::Float32(nodata.map(|value| value as f32))),
-        GdalDataType::Float64 => Ok(PixType::Float64(nodata)),
-        other => Err(anyhow!("unsupported GDAL band type: {:?}", other)),
+        GdalDataType::UInt8 => Ok(PT_8BUI),
+        GdalDataType::Int16 => Ok(PT_16BSI),
+        GdalDataType::UInt16 => Ok(PT_16BUI),
+        GdalDataType::Int32 => Ok(PT_32BSI),
+        GdalDataType::UInt32 => Ok(PT_32BUI),
+        GdalDataType::Float32 => Ok(PT_32BF),
+        GdalDataType::Float64 => Ok(PT_64BF),
+        other => Err(anyhow!("unsupported GDAL band type: {other:?}")),
     }
 }
 
-fn build_outdb_bands(dataset: &Dataset, source_ref: &str) -> Result<Vec<RasterBand>> {
-    let band_count = dataset.raster_count();
-    if band_count == 0 {
-        return Err(anyhow!("dataset has no raster bands"));
+fn pixel_bytes(t: GdalDataType) -> Result<usize> {
+    match t {
+        GdalDataType::UInt8 => Ok(1),
+        GdalDataType::Int16 | GdalDataType::UInt16 => Ok(2),
+        GdalDataType::Int32 | GdalDataType::UInt32 | GdalDataType::Float32 => Ok(4),
+        GdalDataType::Float64 => Ok(8),
+        other => Err(anyhow!("unsupported GDAL band type: {other:?}")),
     }
-    let mut bands = Vec::with_capacity(band_count);
-    for idx in 1..=band_count {
-        let rb = dataset
-            .rasterband(idx)
-            .with_context(|| format!("failed to open raster band {}", idx))?;
-        let pixtype = band_type_to_pixtype(rb.band_type(), rb.no_data_value())?;
-        bands.push(RasterBand {
-            is_nodata_value: false,
-            data: RasterDataSource::Offline(OfflineRasterData {
-                band: (idx - 1) as i8,
-                path: PathBuf::from(source_ref),
-                pixtype,
-            }),
-        });
-    }
-    Ok(bands)
 }
 
-fn read_pixels<T: gdal::raster::GdalType + Copy>(
-    band: &gdal::raster::RasterBand<'_>,
-    window: TileWindow,
-) -> Result<Vec<Vec<T>>> {
-    let buffer = band
-        .read_as::<T>(
-            (window.x_off as isize, window.y_off as isize),
-            (window.width, window.height),
-            (window.width, window.height),
-            None,
-        )
-        .context("failed to read raster window")?;
-    Ok(buffer
-        .data()
-        .chunks(window.width)
-        .map(<[T]>::to_vec)
-        .collect())
-}
-
-fn read_indb_band(dataset: &Dataset, band_idx: usize, window: TileWindow) -> Result<RasterBand> {
-    let band = dataset
-        .rasterband(band_idx)
-        .with_context(|| format!("failed to open raster band {band_idx}"))?;
-    let nodata = band.no_data_value();
-    band_type_to_pixtype(band.band_type(), nodata)?;
-    let data = match band.band_type() {
-        GdalDataType::UInt8 => InMemoryRasterData::UInt8 {
-            data: read_pixels(&band, window)?,
-            nodata: nodata.map(|v| v as u8),
-        },
-        GdalDataType::UInt16 => InMemoryRasterData::UInt16 {
-            data: read_pixels(&band, window)?,
-            nodata: nodata.map(|v| v as u16),
-        },
-        GdalDataType::Int16 => InMemoryRasterData::Int16 {
-            data: read_pixels(&band, window)?,
-            nodata: nodata.map(|v| v as i16),
-        },
-        GdalDataType::UInt32 => InMemoryRasterData::UInt32 {
-            data: read_pixels(&band, window)?,
-            nodata: nodata.map(|v| v as u32),
-        },
-        GdalDataType::Int32 => InMemoryRasterData::Int32 {
-            data: read_pixels(&band, window)?,
-            nodata: nodata.map(|v| v as i32),
-        },
-        GdalDataType::Float32 => InMemoryRasterData::Float32 {
-            data: read_pixels(&band, window)?,
-            nodata: nodata.map(|v| v as f32),
-        },
-        GdalDataType::Float64 => InMemoryRasterData::Float64 {
-            data: read_pixels(&band, window)?,
-            nodata,
-        },
+fn push_nodata_hex(out: &mut Vec<u8>, t: GdalDataType, nodata: Option<f64>) -> Result<()> {
+    match t {
+        GdalDataType::UInt8 => push_hex_byte(out, nodata.map_or(0u8, |v| v as u8)),
+        GdalDataType::Int16 => {
+            push_hex_slice(out, &nodata.map_or(0i16, |v| v as i16).to_le_bytes())
+        }
+        GdalDataType::UInt16 => {
+            push_hex_slice(out, &nodata.map_or(0u16, |v| v as u16).to_le_bytes())
+        }
+        GdalDataType::Int32 => {
+            push_hex_slice(out, &nodata.map_or(0i32, |v| v as i32).to_le_bytes())
+        }
+        GdalDataType::UInt32 => {
+            push_hex_slice(out, &nodata.map_or(0u32, |v| v as u32).to_le_bytes())
+        }
+        GdalDataType::Float32 => {
+            push_hex_slice(out, &nodata.map_or(0f32, |v| v as f32).to_le_bytes())
+        }
+        GdalDataType::Float64 => push_hex_slice(out, &nodata.unwrap_or(0f64).to_le_bytes()),
         other => return Err(anyhow!("unsupported GDAL band type: {other:?}")),
-    };
-    Ok(RasterBand {
-        is_nodata_value: false,
-        data: RasterDataSource::InMemory(data),
-    })
+    }
+    Ok(())
 }
 
-fn read_indb_bands(dataset: &Dataset, window: TileWindow) -> Result<Vec<RasterBand>> {
-    let band_count = dataset.raster_count();
-    if band_count == 0 {
-        return Err(anyhow!("dataset has no raster bands"));
+fn write_indb_pixels_hex(
+    out: &mut Vec<u8>,
+    band: &gdal::raster::RasterBand<'_>,
+    band_type: GdalDataType,
+    window: TileWindow,
+) -> Result<()> {
+    let origin = (window.x_off as isize, window.y_off as isize);
+    let size = (window.width, window.height);
+    match band_type {
+        GdalDataType::UInt8 => {
+            let buffer = band
+                .read_as::<u8>(origin, size, size, None)
+                .context("failed to read raster window")?;
+            push_hex_slice(out, buffer.data());
+        }
+        GdalDataType::Int16 => {
+            let buffer = band
+                .read_as::<i16>(origin, size, size, None)
+                .context("failed to read raster window")?;
+            for &pixel in buffer.data() {
+                push_hex_slice(out, &pixel.to_le_bytes());
+            }
+        }
+        GdalDataType::UInt16 => {
+            let buffer = band
+                .read_as::<u16>(origin, size, size, None)
+                .context("failed to read raster window")?;
+            for &pixel in buffer.data() {
+                push_hex_slice(out, &pixel.to_le_bytes());
+            }
+        }
+        GdalDataType::Int32 => {
+            let buffer = band
+                .read_as::<i32>(origin, size, size, None)
+                .context("failed to read raster window")?;
+            for &pixel in buffer.data() {
+                push_hex_slice(out, &pixel.to_le_bytes());
+            }
+        }
+        GdalDataType::UInt32 => {
+            let buffer = band
+                .read_as::<u32>(origin, size, size, None)
+                .context("failed to read raster window")?;
+            for &pixel in buffer.data() {
+                push_hex_slice(out, &pixel.to_le_bytes());
+            }
+        }
+        GdalDataType::Float32 => {
+            let buffer = band
+                .read_as::<f32>(origin, size, size, None)
+                .context("failed to read raster window")?;
+            for &pixel in buffer.data() {
+                push_hex_slice(out, &pixel.to_le_bytes());
+            }
+        }
+        GdalDataType::Float64 => {
+            let buffer = band
+                .read_as::<f64>(origin, size, size, None)
+                .context("failed to read raster window")?;
+            for &pixel in buffer.data() {
+                push_hex_slice(out, &pixel.to_le_bytes());
+            }
+        }
+        other => return Err(anyhow!("unsupported GDAL band type: {other:?}")),
     }
-    let mut bands = Vec::with_capacity(band_count);
-    for idx in 1..=band_count {
-        bands.push(read_indb_band(dataset, idx, window)?);
-    }
-    Ok(bands)
+    Ok(())
 }
 
-pub(super) fn encode_window(
+/// Encode one raster tile directly into a single-allocation PostGIS `COPY ... FORMAT text` row.
+///
+/// PostGIS's `raster` type defines `raster_in` (hex WKB) without a PostgreSQL binary `typreceive`
+/// function. Encoding RFC2 WKB directly into a pre-sized hex buffer avoids intermediate `Vec<Vec>`
+/// allocations and writes full-width zero placeholders when a band has no NoData value.
+pub(super) fn encode_window_copy_row(
     dataset: &Dataset,
     storage: &RasterStorage,
     srid: i32,
     geo_transform: [f64; 6],
     window: TileWindow,
-) -> Result<String> {
+) -> Result<Vec<u8>> {
     let width_u16 = u16::try_from(window.width)
         .map_err(|_| anyhow!("window width exceeds u16: {}", window.width))?;
     let height_u16 = u16::try_from(window.height)
         .map_err(|_| anyhow!("window height exceeds u16: {}", window.height))?;
+    let band_count = dataset.raster_count();
+    if band_count == 0 {
+        return Err(anyhow!("dataset has no raster bands"));
+    }
+    let band_count_u16 =
+        u16::try_from(band_count).map_err(|_| anyhow!("band count exceeds u16: {band_count}"))?;
+    let pixel_count = window
+        .width
+        .checked_mul(window.height)
+        .ok_or_else(|| anyhow!("window pixel count overflow"))?;
+
+    let mut wkb_len = WKB_RASTER_HEADER_BYTES;
+    for idx in 1..=band_count {
+        let band = dataset
+            .rasterband(idx)
+            .with_context(|| format!("failed to open raster band {idx}"))?;
+        let bytes = pixel_bytes(band.band_type())?;
+        let payload = match storage {
+            RasterStorage::InDb => pixel_count
+                .checked_mul(bytes)
+                .ok_or_else(|| anyhow!("band payload size overflow"))?,
+            RasterStorage::OutDb { server_path } => server_path
+                .len()
+                .checked_add(2)
+                .ok_or_else(|| anyhow!("OutDB path size overflow"))?,
+        };
+        wkb_len = wkb_len
+            .checked_add(1 + bytes)
+            .and_then(|n| n.checked_add(payload))
+            .ok_or_else(|| anyhow!("raster WKB size overflow"))?;
+    }
+    let encoded_len = wkb_len
+        .checked_mul(2)
+        .and_then(|n| n.checked_add(1))
+        .ok_or_else(|| anyhow!("encoded raster row size overflow"))?;
 
     let ip_x = geo_transform[0]
         + geo_transform[1] * (window.x_off as f64)
@@ -171,106 +243,128 @@ pub(super) fn encode_window(
         + geo_transform[4] * (window.x_off as f64)
         + geo_transform[5] * (window.y_off as f64);
 
-    let band_count = dataset.raster_count();
-    if band_count == 0 {
-        return Err(anyhow!("dataset has no raster bands"));
-    }
+    let mut row = Vec::with_capacity(encoded_len);
+    // PostGIS RFC2 Raster WKB header (61 bytes, little-endian).
+    push_hex_byte(&mut row, WKB_NDR_LITTLE_ENDIAN);
+    push_hex_slice(&mut row, &0u16.to_le_bytes()); // version
+    push_hex_slice(&mut row, &band_count_u16.to_le_bytes());
+    push_hex_slice(&mut row, &geo_transform[1].to_le_bytes()); // scaleX
+    push_hex_slice(&mut row, &geo_transform[5].to_le_bytes()); // scaleY
+    push_hex_slice(&mut row, &ip_x.to_le_bytes());
+    push_hex_slice(&mut row, &ip_y.to_le_bytes());
+    push_hex_slice(&mut row, &geo_transform[2].to_le_bytes()); // skewX
+    push_hex_slice(&mut row, &geo_transform[4].to_le_bytes()); // skewY
+    push_hex_slice(&mut row, &srid.to_le_bytes());
+    push_hex_slice(&mut row, &width_u16.to_le_bytes());
+    push_hex_slice(&mut row, &height_u16.to_le_bytes());
 
-    let bands = match storage {
-        RasterStorage::OutDb { server_path } => build_outdb_bands(dataset, server_path)?,
-        RasterStorage::InDb => read_indb_bands(dataset, window)?,
+    let offline_flag = if matches!(storage, RasterStorage::OutDb { .. }) {
+        BAND_FLAG_OFFLINE
+    } else {
+        0
     };
-
-    let band_layout = (1..=band_count)
-        .map(|index| {
-            let band = dataset.rasterband(index)?;
-            let bytes = super::PixelType::from_gdal(band.band_type())?.bytes();
-            let payload = match storage {
-                RasterStorage::InDb => window.width * window.height * bytes,
-                RasterStorage::OutDb { server_path } => server_path.len() + 2,
+    for idx in 1..=band_count {
+        let band = dataset
+            .rasterband(idx)
+            .with_context(|| format!("failed to open raster band {idx}"))?;
+        let band_type = band.band_type();
+        let nodata = band.no_data_value();
+        validate_band_nodata(band_type, nodata)?;
+        let flags = pixtype_code(band_type)?
+            | offline_flag
+            | if nodata.is_some() {
+                BAND_FLAG_HAS_NODATA
+            } else {
+                0
             };
-            Ok((bytes, band.no_data_value().is_some(), payload))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let raster = Raster {
-        endian: Endian::Big,
-        version: 0,
-        scale_x: geo_transform[1],
-        scale_y: geo_transform[5],
-        ip_x,
-        ip_y,
-        skew_x: geo_transform[2],
-        skew_y: geo_transform[4],
-        srid,
-        width: width_u16,
-        height: height_u16,
-        bands,
-    };
-    pad_absent_nodata(raster.to_wkb_string(), &band_layout)
-}
-
-fn pad_absent_nodata(encoded: String, bands: &[(usize, bool, usize)]) -> Result<String> {
-    let complete_size = 122
-        + bands
-            .iter()
-            .map(|(bytes, _, payload)| 2 + (bytes + payload) * 2)
-            .sum::<usize>();
-    if encoded.len() == complete_size {
-        return Ok(encoded);
-    }
-    // wkb-raster 0.2.1 writes only one placeholder byte, even for wider pixels.
-    let mut offset = 61 * 2;
-    let mut output = encoded
-        .get(..offset)
-        .context("truncated raster header")?
-        .to_owned();
-    for &(bytes, has_nodata, payload) in bands {
-        let flag_end = offset + 2;
-        let end = flag_end + (payload + if has_nodata { bytes } else { 1 }) * 2;
-        output.push_str(
-            encoded
-                .get(offset..flag_end)
-                .context("truncated raster flag")?,
-        );
-        if !has_nodata {
-            output.extend(std::iter::repeat_n('0', (bytes - 1) * 2));
+        push_hex_byte(&mut row, flags);
+        push_nodata_hex(&mut row, band_type, nodata)?;
+        match storage {
+            RasterStorage::InDb => write_indb_pixels_hex(&mut row, &band, band_type, window)?,
+            RasterStorage::OutDb { server_path } => {
+                let band_index = u8::try_from(idx - 1)
+                    .map_err(|_| anyhow!("OutDB band index exceeds u8: {}", idx - 1))?;
+                push_hex_byte(&mut row, band_index);
+                push_hex_slice(&mut row, server_path.as_bytes());
+                push_hex_byte(&mut row, 0);
+            }
         }
-        output.push_str(
-            encoded
-                .get(flag_end..end)
-                .context("truncated raster band")?,
-        );
-        offset = end;
     }
-    anyhow::ensure!(offset == encoded.len(), "raster band size mismatch");
-    Ok(output)
+    row.push(b'\n');
+
+    anyhow::ensure!(row.len() == encoded_len, "encoded raster WKB size mismatch");
+    Ok(row)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn nodata_must_fit_the_exact_band_representation() {
-        assert!(band_type_to_pixtype(GdalDataType::UInt8, Some(256.)).is_err());
-        assert!(band_type_to_pixtype(GdalDataType::Int16, Some(0.5)).is_err());
-        assert!(band_type_to_pixtype(GdalDataType::Float32, Some(0.1)).is_err());
-        assert!(band_type_to_pixtype(GdalDataType::Float32, Some(f64::NAN)).is_ok());
-        assert!(band_type_to_pixtype(GdalDataType::Float64, Some(0.1)).is_ok());
+
+    fn decode_hex(hex: &[u8]) -> Vec<u8> {
+        hex.as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&pair| {
+                let s = std::str::from_utf8(&pair).expect("valid ascii hex");
+                u8::from_str_radix(s, 16).expect("valid hex byte")
+            })
+            .collect()
     }
 
     #[test]
-    fn absent_nodata_padding_does_not_shift_following_bands() -> Result<()> {
-        let header = "00".repeat(61);
-        let raw = format!("{header}0600AABB46FFFF0001");
-        assert_eq!(
-            pad_absent_nodata(raw, &[(2, false, 2), (2, true, 2)])?,
-            format!("{header}060000AABB46FFFF0001")
-        );
-        let complete = format!("{header}060000AABB46FFFF0001");
-        assert_eq!(
-            pad_absent_nodata(complete.clone(), &[(2, false, 2), (2, true, 2)])?,
-            complete
-        );
+    fn nodata_must_fit_the_exact_band_representation() {
+        assert!(validate_band_nodata(GdalDataType::UInt8, Some(256.)).is_err());
+        assert!(validate_band_nodata(GdalDataType::Int16, Some(0.5)).is_err());
+        assert!(validate_band_nodata(GdalDataType::Float32, Some(0.1)).is_err());
+        assert!(validate_band_nodata(GdalDataType::Float32, Some(f64::NAN)).is_ok());
+        assert!(validate_band_nodata(GdalDataType::Float64, Some(0.1)).is_ok());
+    }
+
+    #[test]
+    fn raster_wkb_writes_full_width_placeholder_when_nodata_is_absent() -> Result<()> {
+        let driver = gdal::DriverManager::get_driver_by_name("MEM")?;
+        let dataset = driver.create_with_band_type::<u16, _>("", 2, 1, 2)?;
+        dataset.rasterband(1)?.write(
+            (0, 0),
+            (2, 1),
+            &mut gdal::raster::Buffer::new((2, 1), vec![0x1122u16, 0x3344u16]),
+        )?;
+        dataset.rasterband(2)?.write(
+            (0, 0),
+            (2, 1),
+            &mut gdal::raster::Buffer::new((2, 1), vec![1u16, 2u16]),
+        )?;
+        dataset.rasterband(2)?.set_no_data_value(Some(65535.))?;
+
+        let window = TileWindow {
+            x_off: 0,
+            y_off: 0,
+            width: 2,
+            height: 1,
+        };
+        let row = encode_window_copy_row(
+            &dataset,
+            &RasterStorage::InDb,
+            4326,
+            [10., 0.5, 0., 20., 0., -0.5],
+            window,
+        )?;
+        assert_eq!(row.last(), Some(&b'\n'));
+        let wkb = decode_hex(&row[..row.len() - 1]);
+        // 61 (header) + 2 * (1 flag + 2 nodata + 4 pixels)
+        assert_eq!(wkb.len(), 75);
+        assert_eq!(wkb[0], WKB_NDR_LITTLE_ENDIAN);
+        assert_eq!(u16::from_le_bytes(wkb[3..5].try_into().unwrap()), 2);
+        // Band 1: no nodata -> full 2-byte zero placeholder before pixels.
+        assert_eq!(wkb[61], PT_16BUI);
+        assert_eq!(&wkb[62..64], &[0, 0]);
+        assert_eq!(u16::from_le_bytes(wkb[64..66].try_into().unwrap()), 0x1122);
+        assert_eq!(u16::from_le_bytes(wkb[66..68].try_into().unwrap()), 0x3344);
+        // Band 2: has nodata 65535 -> flag includes BAND_FLAG_HAS_NODATA.
+        assert_eq!(wkb[68], PT_16BUI | BAND_FLAG_HAS_NODATA);
+        assert_eq!(u16::from_le_bytes(wkb[69..71].try_into().unwrap()), 65535);
+        assert_eq!(u16::from_le_bytes(wkb[71..73].try_into().unwrap()), 1);
+        assert_eq!(u16::from_le_bytes(wkb[73..75].try_into().unwrap()), 2);
         Ok(())
     }
 }

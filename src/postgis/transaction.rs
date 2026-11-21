@@ -5,9 +5,23 @@ use super::{
     sql::quote,
     stream::SourceStream,
 };
+use bytes::BytesMut;
 use deadpool_postgres::Object;
 use futures::SinkExt;
 use std::pin::pin;
+
+/// PostgreSQL binary COPY signature (11 B) + zero flags (4 B) + zero extension length (4 B).
+const BINARY_COPY_HEADER: &[u8] = b"PGCOPY\n\xff\r\n\0\0\0\0\0\0\0\0\0";
+/// PostgreSQL binary COPY end-of-data trailer (`-1i16`).
+const BINARY_COPY_TRAILER: &[u8] = &[0xff, 0xff];
+/// Batch small rows into 64 KiB CopyData frames to avoid per-row TCP flushes.
+const COPY_BATCH_BYTES: usize = 64 * 1024;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CopyFormat {
+    Binary,
+    Text,
+}
 
 pub(crate) struct TableColumn {
     pub name: String,
@@ -18,6 +32,7 @@ pub(crate) struct TableColumn {
 
 pub(crate) struct TablePlan {
     pub columns: Vec<TableColumn>,
+    pub copy_format: CopyFormat,
     pub srid: i32,
     pub allow_empty: bool,
     pub total: Option<u64>,
@@ -95,8 +110,12 @@ impl TablePlan {
             .map(|c| quote(&c.name))
             .collect::<Vec<_>>()
             .join(",");
+        let format = match self.copy_format {
+            CopyFormat::Binary => "binary",
+            CopyFormat::Text => "text",
+        };
         format!(
-            "COPY {} ({columns}) FROM STDIN WITH (FORMAT text)",
+            "COPY {} ({columns}) FROM STDIN WITH (FORMAT {format})",
             table.sql()
         )
     }
@@ -301,15 +320,38 @@ pub(crate) async fn write<M: Send + 'static>(
             .await
             .map_err(|e| PostGisError::database(WriteStage::Copying, e))?;
         let mut sink = pin!(sink);
+        let mut batch = BytesMut::with_capacity(COPY_BATCH_BYTES);
+        if plan.copy_format == CopyFormat::Binary {
+            batch.extend_from_slice(BINARY_COPY_HEADER);
+        }
         let mut sent = 0u64;
         while let Some(row) = stream.rows.recv().await {
-            sink.as_mut()
-                .send(row.bytes.clone())
-                .await
-                .map_err(|e| PostGisError::database(WriteStage::Copying, e))?;
+            if row.bytes.len() >= COPY_BATCH_BYTES {
+                if !batch.is_empty() {
+                    sink.as_mut()
+                        .send(batch.split().freeze())
+                        .await
+                        .map_err(|e| PostGisError::database(WriteStage::Copying, e))?;
+                }
+                sink.as_mut()
+                    .send(row.bytes)
+                    .await
+                    .map_err(|e| PostGisError::database(WriteStage::Copying, e))?;
+            } else {
+                if batch.len() + row.bytes.len() > COPY_BATCH_BYTES {
+                    sink.as_mut()
+                        .send(batch.split().freeze())
+                        .await
+                        .map_err(|e| PostGisError::database(WriteStage::Copying, e))?;
+                }
+                batch.extend_from_slice(&row.bytes);
+            }
             sent += 1;
             if sent == 1 || sent.is_multiple_of(256) {
                 control.emit(WriteStage::Copying, sent, plan.total);
+            }
+            if control.cancel.is_cancelled() {
+                return Err(PostGisError::Cancelled);
             }
         }
         let produced = stream.finish().await?;
@@ -317,6 +359,15 @@ pub(crate) async fn write<M: Send + 'static>(
             return Err(PostGisError::InvalidInput(
                 "source row count disagrees with transfer count".into(),
             ));
+        }
+        if plan.copy_format == CopyFormat::Binary {
+            batch.extend_from_slice(BINARY_COPY_TRAILER);
+        }
+        if !batch.is_empty() {
+            sink.as_mut()
+                .send(batch.freeze())
+                .await
+                .map_err(|e| PostGisError::database(WriteStage::Copying, e))?;
         }
         let copied = sink
             .finish()

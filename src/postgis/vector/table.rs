@@ -4,7 +4,7 @@ use crate::postgis::{EmptyInputPolicy, sql::quote};
 use crate::postgis::{
     Result, TableName,
     connection::Capabilities,
-    transaction::{FinalSql, TableColumn, TablePlan},
+    transaction::{CopyFormat, FinalSql, TableColumn, TablePlan},
 };
 
 pub(super) fn plan(
@@ -58,6 +58,7 @@ pub(super) fn plan(
     }
     Ok(TablePlan {
         columns,
+        copy_format: CopyFormat::Binary,
         srid: geom.srid,
         allow_empty: options.empty == EmptyInputPolicy::Allow,
         total: info.total,

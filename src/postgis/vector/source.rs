@@ -169,6 +169,8 @@ pub(crate) fn start(source: VectorSource, options: VectorWriteOptions) -> Source
                 return Err(input("source field names collide after mapping"));
             }
         }
+        let field_count = i16::try_from(schema.columns.len() + 1)
+            .map_err(|_| input("too many columns for PostgreSQL binary COPY"))?;
         let total = checked_gdal_call(|| layer.try_feature_count())
             .map_err(|e| PostGisError::source(0, e))?;
         metadata
@@ -191,7 +193,13 @@ pub(crate) fn start(source: VectorSource, options: VectorWriteOptions) -> Source
                 break;
             };
             record += 1;
-            let mut row = Vec::new();
+            if 2 > options.limits.max_record_bytes {
+                return Err(PostGisError::ResourceLimit(
+                    "encoded attributes exceed record budget".into(),
+                ));
+            }
+            let mut row = Vec::with_capacity(64);
+            row.extend_from_slice(&field_count.to_be_bytes());
             for (column, source_index) in schema.columns.iter().zip(&mapping) {
                 let value = match source_index {
                     Some(index) => read_value(&feature, *index, fields[*index].1)
@@ -199,19 +207,15 @@ pub(crate) fn start(source: VectorSource, options: VectorWriteOptions) -> Source
                     None => None,
                 };
                 copy::push_field(&mut row, value, column, options.limits.max_record_bytes)?;
-                row.push(b'\t');
-                if row.len() > options.limits.max_record_bytes {
-                    return Err(PostGisError::ResourceLimit(
-                        "encoded attributes exceed record budget".into(),
-                    ));
-                }
             }
             let geometry = feature.geometry().filter(|geometry| {
                 // SAFETY: retrieving the owned feature's pointer does not dereference it.
                 geometry.has_gdal_ptr() && !unsafe { geometry.c_geometry() }.is_null()
             });
             match geometry {
-                None if schema.geometry.nullable => row.extend_from_slice(b"\\N"),
+                None if schema.geometry.nullable => {
+                    copy::push_null_field(&mut row, options.limits.max_record_bytes)?;
+                }
                 None => return Err(input("source feature has NULL geometry")),
                 Some(geometry) => {
                     let transformed = if geometry.is_empty() {
@@ -238,8 +242,7 @@ pub(crate) fn start(source: VectorSource, options: VectorWriteOptions) -> Source
                     if wkb
                         .len()
                         .checked_add(4)
-                        .and_then(|n| n.checked_mul(2))
-                        .and_then(|n| n.checked_add(row.len() + 1))
+                        .and_then(|n| n.checked_add(row.len()))
                         .is_none_or(|n| n > options.limits.max_record_bytes)
                     {
                         return Err(PostGisError::ResourceLimit(
@@ -247,10 +250,14 @@ pub(crate) fn start(source: VectorSource, options: VectorWriteOptions) -> Source
                         ));
                     }
                     let encoded = ewkb::encode(&wkb, &schema.geometry)?;
-                    row.extend_from_slice(encoded.as_bytes());
+                    copy::push_bytes_field(&mut row, &encoded, options.limits.max_record_bytes)
+                        .map_err(|_| {
+                            PostGisError::ResourceLimit(
+                                "encoded geometry exceeds record budget".into(),
+                            )
+                        })?;
                 }
             }
-            row.push(b'\n');
             sender.send(row)?;
         }
         Ok(())

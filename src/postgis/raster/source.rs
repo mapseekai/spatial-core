@@ -179,7 +179,7 @@ pub(crate) fn start(source: RasterSource, options: RasterWriteOptions) -> Source
                 .rasterband(index)
                 .map_err(|e| PostGisError::source(0, e))?;
             let pixel_type = PixelType::from_gdal(band.band_type())?;
-            wkb::band_type_to_pixtype(band.band_type(), band.no_data_value())
+            wkb::validate_band_nodata(band.band_type(), band.no_data_value())
                 .map_err(|e| PostGisError::InvalidInput(e.to_string()))?;
             bands.push(RasterBandSchema {
                 pixel_type,
@@ -187,27 +187,35 @@ pub(crate) fn start(source: RasterSource, options: RasterWriteOptions) -> Source
             });
         }
         let bytes_per_pixel = bands.iter().map(|b| b.pixel_type.bytes()).sum::<usize>();
+        let max_band_bytes = bands
+            .iter()
+            .map(|b| b.pixel_type.bytes())
+            .max()
+            .unwrap_or(0);
+        let band_headers = bands
+            .iter()
+            .try_fold(0usize, |acc, b| acc.checked_add(1 + b.pixel_type.bytes()));
+        // Peak bytes for one tile: encoded hex COPY row (2x WKB + newline) + one GDAL read buffer.
         let estimate = match &options.storage {
-            RasterStorage::InDb => first
-                .width
-                .checked_mul(first.height)
-                .and_then(|n| n.checked_mul(bytes_per_pixel))
-                .and_then(|n| n.checked_mul(12))
-                .and_then(|n| {
-                    n.checked_add(first.height.checked_mul(band_count)?.checked_mul(24)?)
-                }),
+            RasterStorage::InDb => first.width.checked_mul(first.height).and_then(|pixels| {
+                let wkb_pixels = pixels.checked_mul(bytes_per_pixel)?;
+                let gdal_buf = pixels.checked_mul(max_band_bytes)?;
+                wkb_pixels
+                    .checked_add(band_headers?)?
+                    .checked_add(61)?
+                    .checked_mul(2)?
+                    .checked_add(1)?
+                    .checked_add(gdal_buf)
+            }),
             RasterStorage::OutDb { server_path } => server_path
                 .len()
-                .checked_add(64)
+                .checked_add(2)
                 .and_then(|n| n.checked_mul(band_count))
-                .and_then(|n| n.checked_mul(12)),
-        }
-        .and_then(|n| {
-            n.checked_add(
-                band_count.checked_mul(std::mem::size_of::<wkb_raster::RasterBand>() + 64)?,
-            )
-        })
-        .and_then(|n| n.checked_add(2048));
+                .and_then(|n| n.checked_add(band_headers?))
+                .and_then(|n| n.checked_add(61))
+                .and_then(|n| n.checked_mul(2))
+                .and_then(|n| n.checked_add(1)),
+        };
         if estimate.is_none_or(|n| n > options.limits.max_record_bytes) {
             return Err(PostGisError::ResourceLimit(
                 "raster peak encoding exceeds record budget; select smaller tiles".into(),
@@ -244,11 +252,9 @@ pub(crate) fn start(source: RasterSource, options: RasterWriteOptions) -> Source
             if sender.cancellation().is_cancelled() {
                 return Err(PostGisError::Cancelled);
             }
-            let mut encoded =
-                wkb::encode_window(&dataset, &options.storage, srid, transform, window)
-                    .map_err(|e| PostGisError::source(index as u64 + 1, e))?
-                    .into_bytes();
-            encoded.push(b'\n');
+            let encoded =
+                wkb::encode_window_copy_row(&dataset, &options.storage, srid, transform, window)
+                    .map_err(|e| PostGisError::source(index as u64 + 1, e))?;
             sender.send(encoded)?;
         }
         drop(dataset);

@@ -118,7 +118,7 @@ fn invalid() -> PostGisError {
     PostGisError::InvalidInput("WKB does not match geometry kind, dimensions or length".into())
 }
 
-pub(crate) fn encode(wkb: &[u8], column: &GeometryColumn) -> Result<String> {
+pub(crate) fn encode(wkb: &[u8], column: &GeometryColumn) -> Result<Vec<u8>> {
     let mut parser = Parser {
         input: wkb,
         output: Vec::with_capacity(wkb.len() + 4),
@@ -127,13 +127,7 @@ pub(crate) fn encode(wkb: &[u8], column: &GeometryColumn) -> Result<String> {
     if !parser.input.is_empty() {
         return Err(invalid());
     }
-    let mut hex = String::with_capacity(parser.output.len() * 2);
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    for byte in parser.output {
-        hex.push(DIGITS[(byte >> 4) as usize] as char);
-        hex.push(DIGITS[(byte & 15) as usize] as char);
-    }
-    Ok(hex)
+    Ok(parser.output)
 }
 
 #[cfg(test)]
@@ -154,7 +148,11 @@ mod tests {
                 dimension,
                 4326,
             )?;
-            assert!(encode(&wkb, &column).is_ok());
+            let encoded = encode(&wkb, &column)?;
+            assert_eq!(encoded[0], 1);
+            let header_type = u32::from_le_bytes(encoded[1..5].try_into()?);
+            assert_eq!(header_type, 4 | dimension.flags() | 0x20000000);
+            assert_eq!(i32::from_le_bytes(encoded[5..9].try_into()?), 4326);
             assert!(encode(&wkb[..wkb.len() - 1], &column).is_err());
         }
         Ok(())

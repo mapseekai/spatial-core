@@ -2,7 +2,7 @@ use super::{source::SourceInfo, writer::RasterWriteOptions};
 use crate::postgis::{
     Result, TableName,
     connection::Capabilities,
-    transaction::{FinalSql, TableColumn, TablePlan},
+    transaction::{CopyFormat, FinalSql, TableColumn, TablePlan},
 };
 
 pub(super) fn plan(
@@ -135,6 +135,7 @@ pub(super) fn plan(
     let extent_sql = super::metadata::extent_sql(table, &info.schema.raster, caps)?;
     Ok(TablePlan {
         columns,
+        copy_format: CopyFormat::Text,
         srid: info.schema.srid,
         allow_empty: false,
         total: Some(info.count),
